@@ -1,6 +1,7 @@
 from lxml import etree
 from OsimToBiomod.utils import *
 from numpy.linalg import inv
+import os
 
 
 # TODO :
@@ -781,5 +782,6 @@ class Converter:
 
 
 if __name__ == '__main__':
-    converter = Converter("Models/wu_converted.bioMod", "Models/Wu_Shoulder_Model_via_points.osim")
+    model_path = os.path.dirname(os.getcwd()) + "/Models/"
+    converter = Converter(model_path + "wu_converted.bioMod", model_path + "Wu_Shoulder_Model_via_points.osim")
     converter.main()
