@@ -1,5 +1,5 @@
 from lxml import etree
-from utils import *
+from OsimToBiomod.utils import *
 from numpy.linalg import inv
 
 
@@ -776,6 +776,7 @@ class Converter:
                                  ' for the reduced number of DOF\n'
                                  '// Check end of file for possible constraints in the osim model\n\n')
         self.file.close()
+        print(f"\nYour file {self.origin_file} has been converted into {self.path}.")
 
 
 if __name__ == '__main__':
