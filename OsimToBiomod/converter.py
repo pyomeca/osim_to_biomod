@@ -250,7 +250,7 @@ class Converter:
             true_segment=False,
             _dof_total_trans='',
             _dof_total_rot='',
-            _range_q='',
+            _range_q=None,
             _is_dof='False'
     ):
         if rt_in_matrix not in [0, 1]:
@@ -262,10 +262,17 @@ class Converter:
                 for j in range(3):
                     # globals()['r' + str(i + 1) + str(j + 1)] = round(frame_offset.get_rotation_matrix()[i][j], 9)
                     globals()['r' + str(i + 1) + str(j + 1)] = frame_offset.get_rotation_matrix()[i][j]
+        range_q = ''
+        if _range_q is not None and len(_range_q) != 0:
+            if isinstance(_range_q, list):
+                _range_q = np.array(_range_q)
+            if len(_range_q.shape) == 1:
+                _range_q = _range_q.reshape(1, 2)
+            for i in range(_range_q.shape[0]):
+                range_q += f'               {_range_q[i, 0]}\t{_range_q[i, 1]}\n'
 
-        range_q_text = ''
-        for i in _range_q:
-            range_q_text += f'               {i[0]}\t{i[1]}\n'
+        # for i in _range_q:
+        #     range_q_text += f'               {i[0]}\t{i[1]}\n'
         [i11, i22, i33, i12, i13, i23] = self.matrix_inertia(_body)
         mass = new_text(go_to(go_to(self.root, 'Body', 'name', _body), 'mass'))
         com = new_text(go_to(go_to(self.root, 'Body', 'name', _body), 'mass_center'))
@@ -299,9 +306,9 @@ class Converter:
 
         self.write(f'        rotations {_dof_total_rot}\n') if _is_dof == 'True' and _dof_total_rot != '' else True
 
-        if _range_q != '':
+        if _range_q is not None:
             self.write('        rangesQ\n'
-                       '{}'.format(range_q_text)) if _range_q != '' else True
+                       '{}'.format(range_q))
         self.write('        mass {}\n'.format(mass)) if true_segment is True else True
         self.write('        inertia\n'
                    '            {}    {}    {}\n'
@@ -518,7 +525,7 @@ class Converter:
                 j = 0
                 list_trans_dof = ['x', 'y', 'z']
                 transform_translation = []
-
+                is_dof = []
                 for translation in list_transform[0]:
                     if translation.find('translation') == 0:
                         axis_str = new_text(go_to(
@@ -526,10 +533,11 @@ class Converter:
                             'axis'))
                         axis = [float(s) for s in axis_str.split(' ')]
                         transform_translation.append(axis)
-                        is_dof = new_text(
+                        current_dof = new_text(
                             go_to(go_to(go_to(self.root, joint_type, 'name', joint), 'TransformAxis', 'name', translation),
                                   'coordinates'))
-                        if is_dof in self.dof_of_joint(joint, joint_type):
+                        is_dof.append(current_dof)
+                        if current_dof in self.dof_of_joint(joint, joint_type):
                             dof_total_trans += list_trans_dof[j]
                         j += 1
 
@@ -540,8 +548,12 @@ class Converter:
                     z = transform_translation[2]
                     rotomatrix.set_rotation_matrix(np.append(x, np.append(y, z)).reshape(3, 3).T)
                     # axis offset
+                    q_range = []
+                    for i in range(len(is_dof)):
+                        if is_dof[i] != 'None' and is_dof[i]:
+                            q_range.append(self.get_q_range(is_dof[i], joint_type, joint))
                     self.printing_segment(body, body_trans, parent, rotomatrix, rt_in_matrix=1, true_segment=False,
-                                          _dof_total_trans=dof_total_trans)
+                                          _dof_total_trans=dof_total_trans, _range_q=q_range)
                     axis_offset = axis_offset.dot(rotomatrix.get_rotation_matrix())
                     parent = body_trans
                 else:
@@ -587,25 +599,37 @@ class Converter:
                     rotomatrix.set_rotation_matrix(np.append(x, np.append(y, z)).reshape(3, 3).T)
                     body_name = body + '_rotation_transform'
                     rot_dof = "xyz"
+                    q_range = []
+                    for i in range(len(is_dof)):
+                        if is_dof[i] != 'None':
+                            q_range.append(self.get_q_range(is_dof[i], joint_type, joint))
                     self.write("// Rotation transform was initially an orthogonal basis\n")
                     self.printing_segment(body, body_name, parent, rotomatrix, rt_in_matrix=1,
-                                          _dof_total_rot=rot_dof, true_segment=False, _is_dof='True')
+                                          _dof_total_rot=rot_dof, true_segment=False, _is_dof='True', _range_q=q_range)
                     axis_offset = axis_offset.dot(rotomatrix.get_rotation_matrix())
                     parent = body_name
 
                 else:
                     axis_basis = []
+                    q_range = None
                     for i in range(len(transform_rotation)):
                         rotation = list_transform[1][i]
                         if len(axis_basis) == 0:
                             axis_basis.append(ortho_norm_basis(transform_rotation[i], i))
                             initial_rotation = compute_matrix_rotation([default_value[i], 0, 0])
+                            if is_dof[i] != 'None':
+                                q_range = self.get_q_range(is_dof[i], joint_type, joint)
+
                         elif len(axis_basis) == 1:
                             axis_basis.append(inv(axis_basis[i - 1]).dot(ortho_norm_basis(transform_rotation[i], i)))
                             initial_rotation = compute_matrix_rotation([0, default_value[i], 0])
+                            if is_dof[i] != 'None':
+                                q_range = self.get_q_range(is_dof[i], joint_type, joint)
                         else:
                             axis_basis.append(inv(axis_basis[i - 1]).dot(inv(axis_basis[i - 2])).dot(ortho_norm_basis(transform_rotation[i], i)))
                             initial_rotation = compute_matrix_rotation([0, 0, default_value[i]])
+                            if is_dof[i] != 'None':
+                                q_range = self.get_q_range(is_dof[i], joint_type, joint)
 
                         if is_dof[i] in self.dof_of_joint(joint, joint_type):
                             dof_rot = list_rot_dof[count_dof_rot]
@@ -615,10 +639,12 @@ class Converter:
                             body_dof = body + '_' + rotation
                             activate_dof = 'None'
                             dof_rot = ''
+
                         rotomatrix.set_rotation_matrix(axis_basis[i].dot(initial_rotation))
                         count_dof_rot += 1
                         self.printing_segment(body, body_dof, parent, rotomatrix, rt_in_matrix=1,
-                                              _dof_total_rot=dof_rot, true_segment=False, _is_dof=activate_dof)
+                                              _dof_total_rot=dof_rot, true_segment=False, _is_dof=activate_dof,
+                                              _range_q=q_range)
                         axis_offset = axis_offset.dot(rotomatrix.get_rotation_matrix())
                         parent = body_dof
 
