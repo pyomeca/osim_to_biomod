@@ -115,22 +115,23 @@ def ortho_norm_basis(vector, idx):
     # build an orthogonal basis fom a vector
     basis = []
     v = np.random.random(3)
-    z = np.cross(v, vector)
+    vector_norm = vector / np.linalg.norm(vector)
+    z = np.cross(v, vector_norm)
     z_norm = z / np.linalg.norm(z)
-    y = np.cross(vector, z)
+    y = np.cross(vector_norm, z)
     y_norm = y / np.linalg.norm(y)
     if idx == 0:
-        basis = np.append(vector, np.append(y_norm, z_norm)).reshape(3, 3).T
+        basis = np.append(vector_norm, np.append(y_norm, z_norm)).reshape(3, 3).T
         if np.linalg.det(basis) < 0:
-            basis = np.append(vector, np.append(y_norm, -z_norm)).reshape(3, 3).T
+            basis = np.append(vector_norm, np.append(y_norm, -z_norm)).reshape(3, 3).T
     elif idx == 1:
-        basis = np.append(y_norm, np.append(vector, z_norm)).reshape(3, 3).T
+        basis = np.append(y_norm, np.append(vector_norm, z_norm)).reshape(3, 3).T
         if np.linalg.det(basis) < 0:
-            basis = np.append(y_norm, np.append(vector, -z_norm)).reshape(3, 3).T
+            basis = np.append(y_norm, np.append(vector_norm, -z_norm)).reshape(3, 3).T
     elif idx == 2:
-        basis = np.append(z_norm, np.append(y_norm, vector)).reshape(3, 3).T
+        basis = np.append(z_norm, np.append(y_norm, vector_norm)).reshape(3, 3).T
         if np.linalg.det(basis) < 0:
-            basis = np.append(-z_norm, np.append(y_norm, vector)).reshape(3, 3).T
+            basis = np.append(-z_norm, np.append(y_norm, vector_norm)).reshape(3, 3).T
     return basis
 
 

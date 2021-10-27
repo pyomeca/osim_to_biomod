@@ -259,7 +259,8 @@ class Converter:
             [r41, r42, r43, r44] = [0, 0, 0, 1]
             for i in range(3):
                 for j in range(3):
-                    globals()['r' + str(i + 1) + str(j + 1)] = round(frame_offset.get_rotation_matrix()[i][j], 9)
+                    # globals()['r' + str(i + 1) + str(j + 1)] = round(frame_offset.get_rotation_matrix()[i][j], 9)
+                    globals()['r' + str(i + 1) + str(j + 1)] = frame_offset.get_rotation_matrix()[i][j]
 
         range_q_text = ''
         for i in _range_q:
