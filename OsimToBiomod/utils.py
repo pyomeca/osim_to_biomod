@@ -2,6 +2,13 @@ import inspect
 import numpy as np
 
 
+def new_text(element):
+    if type(element) == str:
+        return element
+    else:
+        return element.text
+
+
 def index_go_to(_root, _tag, _attrib='False', _attribvalue='', index=''):
     # return index to go to _tag which can have condition on its attribute
     i = 0
@@ -31,6 +38,7 @@ def index_go_to(_root, _tag, _attrib='False', _attribvalue='', index=''):
             else:
                 return None
 
+
 def go_to(_root, _tag, _attrib='False', _attribvalue=''):
     # return element corresponding to _tag
     # which can have condition on its attribute
@@ -40,6 +48,7 @@ def go_to(_root, _tag, _attrib='False', _attribvalue=''):
     else:
         _index = index_go_to(_root, _tag, _attrib, _attribvalue)
         return eval(retrieve_name(_root) + _index)
+
 
 def retrieve_name(var):
     """
@@ -52,11 +61,6 @@ def retrieve_name(var):
         if len(names) > 0:
             return names[0]
 
-def new_text(element):
-    if type(element) == str:
-        return element
-    else:
-        return element.text
 
 def compute_matrix_rotation(_rot_value):
     rot_x = np.array([[1, 0, 0],
@@ -78,6 +82,7 @@ def rot2eul(R):
     alpha = np.arctan2(R[2,1],R[2,2])
     gamma = np.arctan2(R[1,0],R[0,0])
     return np.array((alpha, beta, gamma))
+
 
 def coord_sys(axis):
     # define orthonormal coordinate system with given z-axis
@@ -180,6 +185,7 @@ class OrthoMatrix:
 
     def get_axis(self):
         return coord_sys(self.axe_1)[1] + coord_sys(self.axe_2)[1] + coord_sys(self.axe_3)[1]
+
 
 def out_product(rotomatrix_1, rotomatrix_2):
     rotomatrix_prod = OrthoMatrix()
