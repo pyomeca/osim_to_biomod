@@ -16,7 +16,9 @@ class Converter:
 
         self.data_origin = etree.parse(self.origin_file)
         self.root = self.data_origin.getroot()
-
+        if int(self.root.attrib['Version']) < 4000:
+            raise RuntimeError("Converter not implemented with file under version 4000."
+                               "Please save your file into OpenSim 4.0 or more to converter your file version.")
         self.file = open(self.path, 'w')
         self.file.write('version ' + self.version + '\n')
         self.file.write('\n// File extracted from ' + self.origin_file)
@@ -601,7 +603,7 @@ class Converter:
                     self.write("// Rotation transform was initially an orthogonal basis\n")
                     self.printing_segment(body, body_name, parent, rotomatrix, rt_in_matrix=1,
                                           _dof_total_rot=rot_dof, true_segment=False, _is_dof='True'
-                                          , _range_q=q_range
+                                          # , _range_q=q_range
                                           )
                     axis_offset = axis_offset.dot(rotomatrix.get_rotation_matrix())
                     parent = body_name
