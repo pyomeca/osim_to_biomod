@@ -40,10 +40,10 @@ class Converter:
                     offset_data.append(info.copy())
 
         # Todo : add check that first is parent and second is child
-        offset_parent = [[float(i) for i in offset_data[0]['translation'].split(' ')],
-                         [float(i) for i in offset_data[0]['orientation'].split(' ')]]
-        offset_child = [[float(i) for i in offset_data[1]['translation'].split(' ')],
-                        [-float(i) for i in offset_data[1]['orientation'].split(' ')]]
+        offset_parent = [[float(i.replace(',', '.')) for i in offset_data[0]['translation'].split(' ')],
+                         [float(i.replace(',', '.')) for i in offset_data[0]['orientation'].split(' ')]]
+        offset_child = [[float(i.replace(',', '.')) for i in offset_data[1]['translation'].split(' ')],
+                        [-float(i.replace(',', '.')) for i in offset_data[1]['orientation'].split(' ')]]
 
         if any([item for sublist in offset_child for item in sublist]):
             R = compute_matrix_rotation(offset_child[1]).T
@@ -53,12 +53,11 @@ class Converter:
 
         return [offset_parent, offset_child]
 
-
     def matrix_inertia(self, _body):
         _ref = new_text(go_to(go_to(self.root, 'Body', 'name', _body), 'inertia'))
         if _ref != 'None':
             _inertia_str = _ref
-            _inertia = [float(s) for s in _inertia_str.split(' ')]
+            _inertia = [float(s.replace(',', '.')) for s in _inertia_str.split(' ')]
             return _inertia
         else:
             return 'None'
@@ -352,15 +351,15 @@ class Converter:
         range_value = []
         for r in range_q.split(' '):
             if r != '' and r != 'None':
-                range_value.append(float(r))
+                range_value.append(float(r.replace(',', '.')))
         return range_value
 
     def update_q_range(self, _range_q, _Transform_function):
         new_range = [-1, 1]
         if _Transform_function[0] == 'LinearFunction':
-            new_range = [i_r * float(_Transform_function[1][0]) + float(_Transform_function[1][1]) for i_r in _range_q]
+            new_range = [i_r * float(_Transform_function[1][0].replace(',', '.')) + float(_Transform_function[1][1].replace(',', '.')) for i_r in _range_q]
         elif _Transform_function[0] == 'SimmSpline':
-            y_value = [float(i) for i in ' '.join(_Transform_function[1][1].split(' ')).split()]
+            y_value = [float(i.replace(',', '.')) for i in ' '.join(_Transform_function[1][1].split(' ')).split()]
             new_range = [min(y_value), max(y_value)]
         elif _Transform_function[0] == 'MultiplierFunction':
             # y_value = [float(i)*float(_Transform_function[1]) for i in ' '.join(_Transform_function[2][1].split(' ')).split()]
@@ -383,7 +382,7 @@ class Converter:
                         'TransformAxis', 'name', i_transf)
                     , 'axis'))
 
-                axis = [float(s) for s in axis_str.split(' ')]
+                axis = [float(s.replace(',', '.')) for s in axis_str.split(' ')]
 
                 is_dof = new_text(go_to(
                     go_to(
@@ -526,7 +525,7 @@ class Converter:
                         axis_str = new_text(go_to(
                             go_to(go_to(self.root, joint_type, 'name', joint), 'TransformAxis', 'name', translation),
                             'axis'))
-                        axis = [float(s) for s in axis_str.split(' ')]
+                        axis = [float(s.replace(',', '.')) for s in axis_str.split(' ')]
                         transform_translation.append(axis)
                         current_dof = new_text(
                             go_to(go_to(go_to(self.root, joint_type, 'name', joint), 'TransformAxis', 'name', translation),
@@ -567,14 +566,14 @@ class Converter:
                         axis_str = new_text(
                             go_to(go_to(go_to(self.root, joint_type, 'name', joint), 'TransformAxis', 'name', rotation),
                                   'axis'))
-                        axis = [float(s) for s in axis_str.split(' ')]
+                        axis = [float(s.replace(',', '.')) for s in axis_str.split(' ')]
                         transform_rotation.append(axis)
                         is_dof.append(new_text(
                             go_to(go_to(go_to(self.root, joint_type, 'name', joint), 'TransformAxis', 'name', rotation),
                                   'coordinates')))
 
                         if is_dof[-1] and is_dof[-1] != 'None' and is_dof[-1]:
-                            default_value.append(float(new_text(
+                            tmp_value = new_text(
                                 go_to(
                                     go_to(
                                         go_to(self.root, joint_type, 'name', joint
@@ -582,7 +581,8 @@ class Converter:
                                         'Coordinate', 'name', is_dof[-1]
                                     ), 'default_value'
                                 )
-                            )))
+                            )
+                            default_value.append(float(tmp_value.replace(',', '.')))
 
                         else:
                             default_value.append(0)
@@ -732,7 +732,7 @@ class Converter:
                 if muscle_ref_group[count][1] == muscle_group[0] + '_to_' + muscle_group[1]:
                     m_ref = muscle_ref_group[count][1]
                     muscle_type = 'hillthelen'
-                    state_type = 'buchanan'
+                    state_type = 'degroote'
                     list_pathpoint = self.list_pathpoint_muscle(muscle)
                     start_point = list_pathpoint.pop(0)
                     end_point = list_pathpoint.pop()
