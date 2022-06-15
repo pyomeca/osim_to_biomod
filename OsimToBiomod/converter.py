@@ -9,15 +9,15 @@ import os
 
 class Converter:
 
-    def __init__(self, path, origin_file):
+    def __init__(self, path, origin_file, muscle_type):
         self.path = path
         self.origin_file = origin_file
         self.version = str(4)
-
+        self.muscle_type = muscle_type
         self.data_origin = etree.parse(self.origin_file)
         self.root = self.data_origin.getroot()
-        if int(self.root.attrib['Version']) < 4000:
-            raise RuntimeError("Converter not implemented with file under version 4000."
+        if int(self.root.attrib['Version']) < 40000:
+            raise RuntimeError("Converter not implemented with file under version 40000."
                                "Please save your file into OpenSim 4.0 or more to converter your file version.")
         self.file = open(self.path, 'w')
         self.file.write('version ' + self.version + '\n')
@@ -62,22 +62,22 @@ class Converter:
         else:
             return 'None'
 
-    def muscle_list(self):
+    def muscle_list(self, muscle_type):
         _list = []
         for _muscle in self.data_origin.xpath(
-                '/OpenSimDocument/Model/ForceSet/objects/Thelen2003Muscle'):
+                f'/OpenSimDocument/Model/ForceSet/objects/{muscle_type}'):
             _list.append(_muscle.get("name"))
         return _list
 
-    def list_pathpoint_muscle(self, _muscle):
+    def list_pathpoint_muscle(self, _muscle, muscle_type):
         # return list of viapoint for each muscle
         _viapoint = []
         # TODO warning for other type of pathpoint
-        index_pathpoint = index_go_to(go_to(self.root, 'Thelen2003Muscle', 'name', _muscle), 'PathPoint')
+        index_pathpoint = index_go_to(go_to(self.root, muscle_type, 'name', _muscle), 'PathPoint')
         _list_index = list(index_pathpoint)
         _tronc_list_index = _list_index[:len(_list_index) - 2]
         _tronc_index = ''.join(_tronc_list_index)
-        index_root = index_go_to(self.root, 'Thelen2003Muscle', 'name', _muscle)
+        index_root = index_go_to(self.root, muscle_type, 'name', _muscle)
         index_tronc_total = index_root + _tronc_index
         i = 0
         while True:
@@ -183,9 +183,9 @@ class Converter:
                     break
         return [_translation, _rotation]
 
-    def get_body_pathpoint(self, _pathpoint, muscle):
+    def get_body_pathpoint(self, _pathpoint, muscle, muscle_type):
         return new_text(
-            go_to(go_to(go_to(self.root, 'Thelen2003Muscle', 'name', muscle), 'PathPoint', 'name', _pathpoint),
+            go_to(go_to(go_to(self.root, muscle_type, 'name', muscle), 'PathPoint', 'name', _pathpoint),
                   'socket_parent_frame'))[9:]
         # while True:
         #     try:
@@ -209,8 +209,8 @@ class Converter:
         #     except Exception as e:
         #         break
 
-    def get_pos(self, _pathpoint, muscle):
-        return new_text(go_to(go_to(go_to(self.root, 'Thelen2003Muscle', 'name', muscle), 'PathPoint', 'name', _pathpoint),
+    def get_pos(self, _pathpoint, muscle, muscle_type):
+        return new_text(go_to(go_to(go_to(self.root, muscle_type, 'name', muscle), 'PathPoint', 'name', _pathpoint),
                        'location'))
         # while True:
         #     try:
@@ -472,8 +472,11 @@ class Converter:
                 # check these if/else rows
                 if joint == 'WeldJoint':
                     i = 0
-                else:
+                elif joint == "CustomJoint":
                     i = int(list_index[len(list_index) - 2])
+                else:
+                    raise RuntimeError(f"Joint of type {joint} is not supported yet."
+                                       f" Only WeldJoint or CustomJoint are allowed.")
                 while True:
                     try:
                         new_joint = eval('self.root' + tronc_index + str(i) + ']').get('name')
@@ -500,7 +503,6 @@ class Converter:
             # Add default values for list_transform
             axis_offset = np.identity(3)
             # segment data
-
             self.printing_segment(
                 body, body + '_parent_offset', parent, physical_offset[0], rt_in_matrix=0, true_segment=False
                                   )
@@ -588,8 +590,8 @@ class Converter:
                             default_value.append(0)
 
                 if is_ortho_basis(transform_rotation):
-                    if np.linalg.norm(default_value) != 0:
-                        raise RuntimeError("Default value for orthogonal basis not implemented yet.")
+                    # if np.linalg.norm(default_value) != 0:
+                    #     raise RuntimeError("Default value for orthogonal basis not implemented yet.")
                     x = transform_rotation[0]
                     y = transform_rotation[1]
                     z = transform_rotation[2]
@@ -671,41 +673,43 @@ class Converter:
             late_body = body
 
             ###########    Coupled Coordinates constraints
-            constraints_in_model = False
-            constraints_output = '\n//COUPLED COORDINATES\n\n'
-            cc_constraints = index_go_to(self.root, 'CoordinateCouplerConstraint')
-            if cc_constraints is not None:
-
-                constraints_in_model = True
-                list_index = list(cc_constraints)
-                cc_index = ''.join(list_index[:len(list_index) - 2])
-                i = 0
-                while True:
-                    try:
-                        new_ccc = eval('self.root' + cc_index + str(i) + ']').get('name')
-                        constraints_output += f'\n//name: {new_ccc}\n'
-                        qx = new_text(go_to(go_to(self.root, 'CoordinateCouplerConstraint', 'name', new_ccc),
-                                            'independent_coordinate_names'))
-                        qy = new_text(go_to(go_to(self.root, 'CoordinateCouplerConstraint', 'name', new_ccc),
-                                            'dependent_coordinate_name'))
-                        type_coupling = go_to(go_to(self.root, 'CoordinateCouplerConstraint', 'name', new_ccc),
-                                              'coupled_coordinates_function')[0].tag
-                        constraints_output += f'\t//independent q: {qx}\n' \
-                                              f'\t//dependent q: {qy}\n' \
-                                              f'\t//coupling type: {type_coupling}\n'
-                        i += 1
-                    except:
-                        break
+            # constraints_in_model = False
+            # constraints_output = '\n//COUPLED COORDINATES\n\n'
+            # cc_constraints = index_go_to(self.root, 'CoordinateCouplerConstraint')
+            # if cc_constraints is not None:
+            #
+            #     constraints_in_model = True
+            #     list_index = list(cc_constraints)
+            #     cc_index = ''.join(list_index[:len(list_index) - 2])
+            #     i = 0
+            #     while True:
+            #         try:
+            #             new_ccc = eval('self.root' + cc_index + str(i) + ']').get('name')
+            #             constraints_output += f'\n//name: {new_ccc}\n'
+            #             qx = new_text(go_to(go_to(self.root, 'CoordinateCouplerConstraint', 'name', new_ccc),
+            #                                 'independent_coordinate_names'))
+            #             qy = new_text(go_to(go_to(self.root, 'CoordinateCouplerConstraint', 'name', new_ccc),
+            #                                 'dependent_coordinate_name'))
+            #             type_coupling = go_to(go_to(self.root, 'CoordinateCouplerConstraint', 'name', new_ccc),
+            #                                   'coupled_coordinates_function')[0].tag
+            #             constraints_output += f'\t//independent q: {qx}\n' \
+            #                                   f'\t//dependent q: {qy}\n' \
+            #                                   f'\t//coupling type: {type_coupling}\n'
+            #             i += 1
+            #         except:
+            #             break
 
         # Muscle definition
         self.write('\n// MUSCLE DEFINIION\n')
+        muscle_type_osim = self.muscle_type
+
         sort_muscle = []
         muscle_ref_group = []
-        for muscle in self.muscle_list():
-            viapoint = self.list_pathpoint_muscle(muscle)
+        for muscle in self.muscle_list(muscle_type_osim):
+            viapoint = self.list_pathpoint_muscle(muscle, muscle_type_osim)
             bodies_viapoint = []
             for pathpoint in viapoint:
-                bodies_viapoint.append(self.get_body_pathpoint(pathpoint, muscle))
+                bodies_viapoint.append(self.get_body_pathpoint(pathpoint, muscle, muscle_type_osim))
 
             # it is supposed that viapoints are organized in order
             # from the parent body to the child body
@@ -728,31 +732,32 @@ class Converter:
             self.write('endmusclegroup\n')
 
             count = 0
-            for muscle in self.muscle_list():
+            for muscle in self.muscle_list(muscle_type_osim):
                 if muscle_ref_group[count][1] == muscle_group[0] + '_to_' + muscle_group[1]:
                     m_ref = muscle_ref_group[count][1]
-                    muscle_type = 'hillthelen'
-                    state_type = 'degroote'
-                    list_pathpoint = self.list_pathpoint_muscle(muscle)
+                    muscle_type = 'degroote'
+                    state_type = "None"
+
+                    list_pathpoint = self.list_pathpoint_muscle(muscle, muscle_type_osim)
                     start_point = list_pathpoint.pop(0)
                     end_point = list_pathpoint.pop()
-                    start_pos = self.get_pos(start_point, muscle)
-                    insert_pos = self.get_pos(end_point, muscle)
+                    start_pos = self.get_pos(start_point, muscle, muscle_type_osim)
+                    insert_pos = self.get_pos(end_point, muscle, muscle_type_osim)
                     opt_length = new_text(
-                        go_to(go_to(self.root, 'Thelen2003Muscle', 'name', muscle), 'optimal_fiber_length'))
+                        go_to(go_to(self.root, muscle_type_osim, 'name', muscle), 'optimal_fiber_length'))
                     max_force = new_text(
-                        go_to(go_to(self.root, 'Thelen2003Muscle', 'name', muscle), 'max_isometric_force'))
+                        go_to(go_to(self.root, muscle_type_osim, 'name', muscle), 'max_isometric_force'))
                     tendon_slack_length = new_text(
-                        go_to(go_to(self.root, 'Thelen2003Muscle', 'name', muscle), 'tendon_slack_length'))
+                        go_to(go_to(self.root, muscle_type_osim, 'name', muscle), 'tendon_slack_length'))
                     pennation_angle = new_text(
-                        go_to(go_to(self.root, 'Thelen2003Muscle', 'name', muscle), 'pennation_angle_at_optimal'))
-                    pcsa = new_text(go_to(go_to(self.root, 'Thelen2003Muscle', 'name', muscle), 'pcsa'))
+                        go_to(go_to(self.root, muscle_type_osim, 'name', muscle), 'pennation_angle_at_optimal'))
+                    pcsa = new_text(go_to(go_to(self.root, muscle_type_osim, 'name', muscle), 'pcsa'))
                     max_velocity = new_text(
-                        go_to(go_to(self.root, 'Thelen2003Muscle', 'name', muscle), 'max_contraction_velocity'))
+                        go_to(go_to(self.root, muscle_type_osim, 'name', muscle), 'max_contraction_velocity'))
 
                     # print muscle data
                     self.write('\n    muscle    {}'.format(muscle))
-                    self.write('\n        Type    {}'.format(muscle_type)) if muscle_type != 'None' else self.write('')
+                    self.write('\n        type    {}'.format(muscle_type)) if muscle_type != 'None' else self.write('')
                     self.write('\n        statetype    {}'.format(state_type)) if state_type != 'None' else self.write(
                         '')
                     self.write('\n        musclegroup    {}'.format(m_ref)) if m_ref != 'None' else self.write('')
@@ -778,8 +783,8 @@ class Converter:
                     # viapoint
                     for viapoint in list_pathpoint:
                         # viapoint data
-                        parent_viapoint = self.get_body_pathpoint(viapoint, muscle)
-                        viapoint_pos = self.get_pos(viapoint, muscle)
+                        parent_viapoint = self.get_body_pathpoint(viapoint, muscle, muscle_type_osim)
+                        viapoint_pos = self.get_pos(viapoint, muscle, muscle_type_osim)
                         # print viapoint data
                         self.write('\n        viapoint    {}'.format(viapoint))
                         self.write('\n            parent    {}'.format(
@@ -794,20 +799,21 @@ class Converter:
                 count += 1
 
         ###########    Additional data as comment about the model's constraints
-        if constraints_in_model:
-            self.write(constraints_output)
-            self.write(dof_chain)
-            self.write_insert(3, '\n\nWARNING\n'
-                                 '// The original model has some constrained DOF, thus it can not be '
-                                 'directly used for kinematics or dynamics analysis.\n'
-                                 '//If used in optimization, constraints should be added to the nlp to account'
-                                 ' for the reduced number of DOF\n'
-                                 '// Check end of file for possible constraints in the osim model\n\n')
+        # if constraints_in_model:
+        #     self.write(constraints_output)
+        #     self.write(dof_chain)
+        #     self.write_insert(3, '\n\nWARNING\n'
+        #                          '// The original model has some constrained DOF, thus it can not be '
+        #                          'directly used for kinematics or dynamics analysis.\n'
+        #                          '//If used in optimization, constraints should be added to the nlp to account'
+        #                          ' for the reduced number of DOF\n'
+        #                          '// Check end of file for possible constraints in the osim model\n\n')
         self.file.close()
         print(f"\nYour file {self.origin_file} has been converted into {self.path}.")
 
 
 if __name__ == '__main__':
     model_path = os.path.dirname(os.getcwd()) + "/Models/"
-    converter = Converter(model_path + "wu_converted.bioMod", model_path + "Wu_Shoulder_Model_via_points.osim")
+    converter = Converter(model_path + "wu_converted.bioMod", model_path + "Wu_Shoulder_Model_via_points.osim",
+                          muscle_type="Thelen2003Muscle")
     converter.main()
