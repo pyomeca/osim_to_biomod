@@ -153,7 +153,6 @@ class ReadOsim:
                     bodies[b].markers.append(marker)
         return bodies
 
-
     @staticmethod
     def _reorder_joints(joints: list):
         ordered_joints = [joints[0]]
@@ -243,7 +242,7 @@ class WriteBiomod:
     def write_headers(self, gravity, osim_path=None, print_warnings=True, print_info=True, warnings=None, infos=None):
         self.write('version ' + self.version + '\n')
         if osim_path:
-            self.write('\n// File extracted from ' + osim_path)
+            self.write('\n// File extracted from ' + osim_path + '\n')
         if print_info:
             for info in infos.keys():
                 self.write(f'\n//{info} : {infos[info]}')
@@ -251,10 +250,10 @@ class WriteBiomod:
             if warnings:
                 self.write("\n// Biomod not include all Osim features as the optimisation "
                            "is performed on a third part software.\n"
-                           "//The original file contained some of these features, "
-                           "corresponding warnings are showed in the end of the file.")
+                           "// The original file contained some of these features, "
+                           "corresponding warnings are shown in the end of the file.\n")
             else:
-                self.write("// There are no warnings in this file.")
+                self.write("\n// There are no warnings in this file.\n")
         self.write('\n')
         # Gravity
         self.write(f"\ngravity\t{gravity}\n")
@@ -528,12 +527,16 @@ class Converter:
                 idx = []
                 self.writer.write_muscle_group(muscle_group)
                 for m, muscle in enumerate(muscles):
+                    print(muscle.applied)
                     if muscle.group == muscle_group:
+                        if not muscle.applied:
+                            self.writer.write("\n*/")
                         self.writer.write_muscle(muscle)
                         for via_point in muscle.via_point:
                             self.writer.write_via_point(via_point)
+                        if not muscle.applied:
+                            self.writer.write("/*\n")
                         idx.append(m)
-                        print(m, idx, len(muscles))
                 count = 0
                 for i in idx:
                     muscles.pop(i - count)

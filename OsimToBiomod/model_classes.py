@@ -23,10 +23,10 @@ class Body:
             if self.socket_frame == "..":
                 self.socket_frame = self.name
 
-        if element.find("WrapObjectSet"):
+        if element.find("WrapObjectSet") is not None:
             self.wrap = True if len(element.find("WrapObjectSet").text) != 0 else False
 
-        if element.find("attached_geometry"):
+        if element.find("attached_geometry") is not None:
             mesh_list = element.find("attached_geometry").findall("Mesh")
             if mesh_list:
                 if len(mesh_list) > 1:
@@ -57,11 +57,11 @@ class Joint:
         self.parent = find(element, "socket_parent_frame").split("/")[-1]
         self.child = find(element, "socket_child_frame").split("/")[-1]
 
-        if element.find("coordinates"):
+        if element.find("coordinates") is not None:
             for coordinate in element.find("coordinates").findall("Coordinate"):
                 self.coordinates.append(Coordinate().get_coordinate_attrib(coordinate))
 
-        if element.find("SpatialTransform"):
+        if element.find("SpatialTransform") is not None:
             for i, transform in enumerate(element.find("SpatialTransform").findall("TransformAxis")):
                 spat_transform = SpatialTransform().get_transform_attrib(transform)
                 if i < 3:
@@ -167,7 +167,7 @@ class Muscle:
         self.pennation_angle = find(element, "pennation_angle_at_optimal")
         self.maximal_velocity = find(element, "max_contraction_velocity")
 
-        if element.find("appliesForce"):
+        if element.find("appliesForce") is not None:
             self.applied = element.find("appliesForce").text == 'true'
 
         for path_point_elt in element.find("GeometryPath").find("PathPointSet")[0].findall("PathPoint"):
@@ -178,8 +178,11 @@ class Muscle:
         for i in range(len(self.via_point)):
             self.via_point[i].muscle_group = f"{self.group[0]}_to_{self.group[1]}"
 
-        if element.find("GeometryPath").find("PathWrapSet"):
-            wrap = element.find("GeometryPath").find("PathWrapSet")[0].text
+        if element.find("GeometryPath").find("PathWrapSet") is not None:
+            try:
+                wrap = element.find("GeometryPath").find("PathWrapSet")[0].text
+            except:
+                wrap = 0
             n_wrap = 0 if not wrap else len(wrap)
             self.wrap = True if n_wrap != 0 else False
 
