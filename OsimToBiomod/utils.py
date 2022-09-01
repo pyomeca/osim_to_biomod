@@ -193,3 +193,10 @@ def out_product(rotomatrix_1, rotomatrix_2):
     rotomatrix_prod.set_rotation_matrix(rotomatrix_1.get_rotation_matrix().dot(rotomatrix_2.get_rotation_matrix()))
     rotomatrix_prod.get_matrix()
     return rotomatrix_prod
+
+
+def find(element, string):
+    if element.find(string) is not None:
+        return element.find(string).text
+    else:
+        return None

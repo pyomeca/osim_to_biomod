@@ -735,7 +735,7 @@ class Converter:
             for muscle in self.muscle_list(muscle_type_osim):
                 if muscle_ref_group[count][1] == muscle_group[0] + '_to_' + muscle_group[1]:
                     m_ref = muscle_ref_group[count][1]
-                    muscle_type = 'degroote'
+                    muscle_type = 'hilldegroote'
                     state_type = "None"
 
                     list_pathpoint = self.list_pathpoint_muscle(muscle, muscle_type_osim)
