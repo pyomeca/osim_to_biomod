@@ -84,12 +84,11 @@ class Joint:
                 offset_trans = frame.find("translation").text
                 offset_trans = [float(i) for i in offset_trans.split(" ")]
                 offset_rot = [float(i) for i in offset_rot.split(" ")]
-                self.child_offset_trans, self.child_offset_rot = self._conver_offset_child(offset_rot, offset_trans)
-
+                self.child_offset_trans, self.child_offset_rot = self._convert_offset_child(offset_rot, offset_trans)
         return self
 
     @staticmethod
-    def _conver_offset_child(offset_child_rot, offset_child_trans):
+    def _convert_offset_child(offset_child_rot, offset_child_trans):
         R = compute_matrix_rotation(offset_child_rot).T
         new_translation = -np.dot(R.T, offset_child_trans)
         new_rotation = -rot2eul(R)
@@ -174,8 +173,10 @@ class Muscle:
         for path_point_elt in element.find("GeometryPath").find("PathPointSet")[0].findall("PathPoint"):
             via_point = PathPoint().get_path_point_attrib(path_point_elt)
             via_point.muscle = self.name
-            self.via_point.append(PathPoint().get_path_point_attrib(path_point_elt))
+            self.via_point.append(via_point)
         self.group = [self.via_point[0].body, self.via_point[-1].body]
+        for i in range(len(self.via_point)):
+            self.via_point[i].muscle_group = f"{self.group[0]}_to_{self.group[1]}"
 
         if element.find("GeometryPath").find("PathWrapSet"):
             wrap = element.find("GeometryPath").find("PathWrapSet")[0].text

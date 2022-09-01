@@ -533,14 +533,18 @@ class Converter:
                         for via_point in muscle.via_point:
                             self.writer.write_via_point(via_point)
                         idx.append(m)
-                    for i in idx:
-                        muscles.pop(i)
+                        print(m, idx, len(muscles))
+                count = 0
+                for i in idx:
+                    muscles.pop(i - count)
+                    count += 1
+            muscle_groups.pop(0)
 
         if self.print_warnings:
-            self.writer.write("\n*/\n")
+            self.writer.write("\n*/-------------- WARNINGS---------------\n")
             for warning in self.warnings:
-                self.writer.write(warning)
-            self.writer.write("\n/*\n")
+                self.writer.write(warning+'\n')
+            self.writer.write("/*\n")
         self.writer.biomod_file.close()
         print(f"\nYour file {self.osim_path} has been converted into {self.biomod_path}.")
 
