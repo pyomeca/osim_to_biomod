@@ -5,9 +5,6 @@ from numpy.linalg import inv
 import os
 from model_classes import *
 
-# TODO :
-#   - Add class for joints, bodies, muscles, markers
-
 
 class ReadOsim:
     def __init__(self, osim_path, print_warnings: bool = True):
@@ -79,6 +76,7 @@ class ReadOsim:
         self.geometry_set = []
         self.warnings = []
         self.infos = {}
+        self._get_infos()
 
     @staticmethod
     def _is_element_empty(element):
@@ -108,7 +106,7 @@ class ReadOsim:
                 markers.append(Marker().get_marker_attrib(element))
             return markers
 
-    def get_force_set(self):
+    def get_force_set(self, ignore_muscle_applied_tag=False):
         forces = []
         wrap = []
         if self._is_element_empty(self.forceset_elt):
@@ -116,17 +114,12 @@ class ReadOsim:
         else:
             for element in self.forceset_elt[0]:
                 if "Muscle" in element.tag:
-                    forces.append(Muscle().get_muscle_attrib(element))
+                    forces.append(Muscle().get_muscle_attrib(element, ignore_muscle_applied_tag))
                     if forces[-1].wrap:
                         wrap.append(forces[-1].name)
-                elif "Force" in element.tag:
-                    self.warnings.append("Some forces were present in the original file force set."
+                elif "Force" in element.tag or "Actuator" in element.tag:
+                    self.warnings.append(f"Some {element.tag} were present in the original file force set."
                                          " Only muscles are supported so their will be ignored.")
-                elif "Actuator" in element.tag:
-                    self.warnings.append("Some Actuators were present in the original file force set."
-                                         " Only muscles are supported so their will be ignored.")
-                else:
-                    raise RuntimeError(f"Element {element.tag} are not implemented yet. Please raise an issue.")
             if len(wrap) != 0:
                 self.warnings.append(f"Some wrapping objects were present on the muscles :{wrap}"
                                      " in the original file force set.\n"
@@ -134,23 +127,28 @@ class ReadOsim:
 
             return forces
 
-    def get_join_set(self):
+    def get_join_set(self, ignore_fixed_dof_tag=False, ignore_clamped_dof_tag=False):
         joints = []
         if self._is_element_empty(self.forceset_elt):
             return None
         else:
             for element in self.jointset_elt[0]:
-                joints.append(Joint().get_joint_attrib(element))
-            joints = [joints[-1]] + joints[:-1]
+                joints.append(Joint().get_joint_attrib(element, ignore_fixed_dof_tag, ignore_clamped_dof_tag))
+                if joints[-1].function:
+                    self.warnings.append(f"Some functions were present for the {joints[-1].name} joint."
+                                         " This feature is not implemented in biorbd yet so it will be ignored.")
             joints = self._reorder_joints(joints)
             return joints
 
     @staticmethod
     def add_markers_to_bodies(bodies, markers):
         for b, body in enumerate(bodies):
-            for marker in markers:
-                if body.socket_frame == marker.parent:
-                    bodies[b].markers.append(marker)
+            try:
+                for marker in markers:
+                    if body.socket_frame == marker.parent:
+                        bodies[b].markers.append(marker)
+            except:
+                pass
         return bodies
 
     @staticmethod
@@ -218,7 +216,7 @@ class ReadOsim:
     def get_file_version(self):
         return int(self.model.getroot().attrib['Version'])
 
-    def get_infos(self):
+    def _get_infos(self):
         if self.publications:
             self.infos["Publication"] = self.publications
         if self.credit:
@@ -227,7 +225,6 @@ class ReadOsim:
             self.infos["Force units"] = self.force_units
         if self.length_units:
             self.infos["Length units"] = self.length_units
-        return self.infos
 
 
 class WriteBiomod:
@@ -245,7 +242,7 @@ class WriteBiomod:
             self.write('\n// File extracted from ' + osim_path + '\n')
         if print_info:
             for info in infos.keys():
-                self.write(f'\n//{info} : {infos[info]}')
+                self.write(f'\n//{info} : {infos[info]}\n')
         if print_warnings:
             if warnings:
                 self.write("\n// Biomod not include all Osim features as the optimisation "
@@ -271,11 +268,11 @@ class WriteBiomod:
         self.write(f'\tInsertionParent\t{group[1]}\n')
         self.write(f'endmusclegroup\n')
 
-    def write_muscle(self, muscle):
+    def write_muscle(self, muscle, type, state_type):
         # print muscle data
         self.write(f'\n\tmuscle\t{muscle.name}') if muscle.name else None
-        self.write(f'\n\t\ttype\t{muscle.type}') if muscle.type else None
-        self.write(f'\n\t\tstatetype\t{muscle.state_type}') if muscle.state_type else None
+        self.write(f'\n\t\ttype\t{type}') if type else None
+        self.write(f'\n\t\tstatetype\t{state_type}') if state_type else None
         if muscle.group:
             self.write(f'\n\t\tmusclegroup\t{muscle.group[0]}_to_{muscle.group[1]}')
         self.write(f'\n\t\tOriginPosition\t{muscle.origin}') if muscle.origin else None
@@ -297,39 +294,87 @@ class WriteBiomod:
         self.write('\n\tendviapoint')
         self.write('\n')
 
-    def _write_generic_segment(self, segment, parent, rt_in_matrix, rotation, translation):
+    def _write_generic_segment(self, name, parent, rt_in_matrix, frame_offset):
         self.write(f'\t// Segment\n')
-        self.write(f'\tsegment {segment}\n')
+        self.write(f'\tsegment {name}\n')
         self.write(f'\t\tparent {parent} \n')
         self.write(f'\t\tRTinMatrix\t{rt_in_matrix}\n')
         if rt_in_matrix == 0:
-            self.write(f'\t\tRT\t{rotation}\txyz\t{translation}\n')
+            for i in range(len(frame_offset)):
+                if isinstance(frame_offset[i], (list, np.ndarray)):
+                    if isinstance(frame_offset[i], np.ndarray):
+                        frame_offset[i] = frame_offset[i].tolist()
+                    frame_offset[i] = str(frame_offset[i])[1:-1].replace(",", "\t")
+            self.write(f'\t\tRT\t{frame_offset[1]}\txyz\t{frame_offset[0]}\n')
         else:
-            [[r14], [r24], [r34]] = [float(i) for i in translation.split(" ")]
+            [[r14], [r24], [r34]] = frame_offset.get_translation().tolist()
             [r41, r42, r43, r44] = [0, 0, 0, 1]
-            for i in range(3):
-                for j in range(3):
-                    globals()['r' + str(i + 1) + str(j + 1)] = round(frame_offset.get_rotation_matrix()[i][j], 9)
+
+            r11, r12, r13 = frame_offset.get_rotation_matrix()[:, 0]
+            r21, r22, r23 = frame_offset.get_rotation_matrix()[:, 1]
+            r31, r32, r33 = frame_offset.get_rotation_matrix()[:, 2]
+
             self.write('\t\tRT\n')
             self.write(
-                f'\t\t\t{r11}\t{r12}\t{r13}\t{r14}\n'
-                f'\t\t\t{r21}\t{r22}\t{r23}\t{r24}\n'
-                f'\t\t\t{r31}\t{r32}\t{r33}\t{r34}\n'
-                f'\t\t\t{r41}\t{r42}\t{r43}\t{r44}\n')
+                f'\t\t\t{r11}\t\t{r12}\t\t{r13}\t\t{r14}\n'
+                f'\t\t\t{r21}\t\t{r22}\t\t{r23}\t\t{r24}\n'
+                f'\t\t\t{r31}\t\t{r32}\t\t{r33}\t\t{r34}\n'
+                f'\t\t\t{r41}\t\t{r42}\t\t{r43}\t\t{r44}\n')
 
-    def _write_true_segement(self):
+    def _write_true_segement(self, name, parent_name, frame_offset, com, mass, inertia, mesh_file=None, rt=0):
         """
         Segment where is applied inertia.
         """
+        [i11, i22, i33, i12, i13, i23] = inertia
 
-    def _write_virtual_segment(self, body, dof, parent_name, rt=0):
+        self._write_generic_segment(name, parent_name, frame_offset=frame_offset, rt_in_matrix=rt)
+        self.write(f"\t\tmass\t{mass}\n")
+        self.write('\t\tinertia\n'
+                   f'\t\t\t{i11}\t{i12}\t{i13}\n'
+                   f'\t\t\t{i12}\t{i22}\t{i23}\n'
+                   f'\t\t\t{i13}\t{i23}\t{i33}\n'
+                   )
+        self.write(f"\t\tcom\t{com}\n")
+        if mesh_file:
+            self.write(f"\t\tmeshfile\t{mesh_file}\n")
+        self.write(f"\tendsegment\n")
+
+    def _write_virtual_segment(self,
+                               name,
+                               parent_name,
+                               frame_offset,
+                               q_range=None,
+                               rt=0,
+                               trans_dof='',
+                               rot_dof=''
+                               ):
         """
         This function aims to add virtual segment to convert osim dof in biomod dof.
         """
-        self._write_generic_segment(body.name, parent_name, rt, dof.parent_offset_rot, dof.parent_offset_trans)
+        self._write_generic_segment(name, parent_name, frame_offset=frame_offset, rt_in_matrix=rt)
+        if trans_dof[:2] == "//":
+            self.write(f'\t\t//translations {trans_dof[2:]}\n') if trans_dof != '' else True
+        else:
+            self.write(f'\t\ttranslations {trans_dof}\n') if trans_dof != '' else True
+        if rot_dof[:2] == "//":
+            self.write(f'\t\t//rotations {rot_dof[2:]}\n') if rot_dof != '' else True
+        else:
+            self.write(f'\t\trotations {rot_dof}\n') if rot_dof != '' else True
+        if q_range:
+            if not isinstance(q_range, list):
+                q_range = [q_range]
+            for q, qrange in enumerate(q_range):
+                if rot_dof[:2] == "//":
+                    range_to_write = f"\t\t\t\t//{qrange[2:]}\n"
+                else:
+                    range_to_write = f"\t\t\t\t{qrange}\n"
+                if q == 0:
+                    self.write(f"\t\tranges\n")
+                self.write(range_to_write)
+        self.write(f'\tendsegment\n\n')
 
-
-    def _get_transformations_parameters(self, spatial_transform):
+    @staticmethod
+    def _get_transformation_parameters(spatial_transform):
         translations = []
         rotations = []
         q_ranges_trans = []
@@ -337,23 +382,24 @@ class WriteBiomod:
         is_dof_trans = []
         default_value_trans = []
         default_value_rot = []
-        default_value = None
         q_range = None
         is_dof_rot = []
+
         for transform in spatial_transform:
             axis = [float(i.replace(',', '.')) for i in transform.axis.split(" ")]
             if transform.coordinate:
                 if transform.coordinate.range:
                     q_range = transform.coordinate.range
-                    if transform.coordinate.clamped:
-                        q_range = '//' + q_range
+                    if not transform.coordinate.clamped:
+                        q_range = '// ' + q_range
                 else:
                     q_range = None
                 value = transform.coordinate.default_value
                 default_value = value if value else 0
-                is_dof_tmp = transform.coordinate.name
+                is_dof_tmp = None if transform.coordinate.locked else transform.coordinate.name
             else:
                 is_dof_tmp = None
+                default_value = 0
             if transform.type == "translation":
                 translations.append(axis)
                 q_ranges_trans.append(q_range)
@@ -369,130 +415,217 @@ class WriteBiomod:
         return translations, q_ranges_trans, is_dof_trans, default_value_trans,\
                rotations, q_ranges_rot, is_dof_rot, default_value_rot
 
-    def _write_ortho_trans_segment(self, translations, body, dof, rotomatrix, is_dof, axis_offset):
-        x = translations[0]
-        y = translations[1]
-        z = translations[2]
-        rotomatrix.set_rotation_matrix(np.append(x, np.append(y, z)).reshape(3, 3).T)
-        self._write_virtual_segment(body, dof, rotomatrix, is_dof, rt=1)
-        return axis_offset.dot(rotomatrix.get_rotation_matrix())
+    def _write_ortho_segment(self, axis, axis_offset, name, parent, rt_in_matrix, frame_offset,
+                             q_range=None, trans_dof='', rot_dof=''):
 
-    def _write_ortho_rot_segment(self, rotations, body, dof, rotomatrix, is_dof, axis_offset, parent):
-        x = rotations[0]
-        y = rotations[1]
-        z = rotations[2]
-        rotomatrix.set_rotation_matrix(np.append(x, np.append(y, z)).reshape(3, 3).T)
-        body_name = body.name + '_rotation_transform'
-        rot_dof = "xyz"
-        self.write("// Rotation transform was initially an orthogonal basis\n")
-        self._write_virtual_segment(body, body_name, parent, rotomatrix, rt_in_matrix=1,
-                                    _dof_total_rot=rot_dof, true_segment=False, _is_dof='True')
-        return axis_offset.dot(rotomatrix.get_rotation_matrix())
+        x = axis[0]
+        y = axis[1]
+        z = axis[2]
+        frame_offset.set_rotation_matrix(np.append(x, np.append(y, z)).reshape(3, 3).T)
+        self._write_virtual_segment(name,
+                                    parent,
+                                    frame_offset=frame_offset,
+                                    q_range=q_range,
+                                    rt=rt_in_matrix,
+                                    trans_dof=trans_dof,
+                                    rot_dof=rot_dof
+                                    )
+        return axis_offset.dot(frame_offset.get_rotation_matrix())
 
-    def _write_non_ortho_rot_segment(self, rotations, rotomatrix, default_value, is_dof, q_ranges, dof, body, axis_offset):
+    def _write_non_ortho_rot_segment(self,
+                                     axis,
+                                     axis_offset,
+                                     name,
+                                     parent,
+                                     rt_in_matrix,
+                                     frame_offset,
+                                     spatial_transform,
+                                     q_ranges=None,
+                                     default_values=None):
+
+        default_values = [0, 0, 0] if not default_values else default_values
         axis_basis = []
         list_rot_dof = ['x', 'y', 'z']
         count_dof_rot = 0
         q_range = None
-        dof_names = []
-        parent = None
-        for coordinate in dof:
-            dof_names.append(coordinate.name)
-        for i, rotation in enumerate(rotations):
-            initial_rotation = compute_matrix_rotation([0, default_value[i], 0])
-            if is_dof[i]:
-                q_range = q_ranges[i]
+        for i, axe in enumerate(axis):
             if len(axis_basis) == 0:
-                axis_basis.append(ortho_norm_basis(rotation, i))
+                axis_basis.append(ortho_norm_basis(axe, i))
+                initial_rotation = compute_matrix_rotation([float(default_values[i]), 0, 0])
             elif len(axis_basis) == 1:
-                axis_basis.append(inv(axis_basis[i - 1]).dot(ortho_norm_basis(rotation, i)))
+                axis_basis.append(inv(axis_basis[i - 1]).dot(ortho_norm_basis(axe, i)))
+                initial_rotation = compute_matrix_rotation([0, float(default_values[i]), 0])
             else:
                 axis_basis.append(
-                    inv(axis_basis[i - 1]).dot(inv(axis_basis[i - 2])).dot(ortho_norm_basis(rotation, i)))
+                    inv(axis_basis[i - 1]).dot(inv(axis_basis[i - 2])).dot(ortho_norm_basis(axe, i)))
+                initial_rotation = compute_matrix_rotation([0, 0, float(default_values[i])])
 
-            if is_dof[i] in dof_names:
-                dof_rot = list_rot_dof[count_dof_rot]
-                activate_dof = True
-                body_dof = body.name + '_' + is_dof[i]
-            else:
-                body_dof = body.name + '_' + rotation
-                activate_dof = False
-                dof_rot = ''
+            try:
+                coordinate = spatial_transform[i].coordinate
+                rot_dof = list_rot_dof[count_dof_rot] if not coordinate.locked else "//" + list_rot_dof[count_dof_rot]
+                body_dof = name + '_' + spatial_transform[i].coordinate.name
+                q_range = q_ranges[i]
+            except :
+                body_dof = name + f'_rotation_{i}'
+                rot_dof = ''
 
-            rotomatrix.set_rotation_matrix(axis_basis[i].dot(initial_rotation))
+            frame_offset.set_rotation_matrix(axis_basis[i].dot(initial_rotation))
             count_dof_rot += 1
-            self._write_virtual_segment(body, body_dof, parent, rotomatrix, rt_in_matrix=1,
-                                  _dof_total_rot=dof_rot, true_segment=False, _is_dof=activate_dof,
-                                  _range_q=q_range
-                                  )
-            axis_offset = axis_offset.dot(rotomatrix.get_rotation_matrix())
+            self._write_virtual_segment(name,
+                                        parent,
+                                        frame_offset=frame_offset,
+                                        q_range=q_range,
+                                        rt=rt_in_matrix,
+                                        rot_dof=rot_dof
+                                        )
+            axis_offset = axis_offset.dot(frame_offset.get_rotation_matrix())
             parent = body_dof
-        return axis_offset, parent
+        return axis_offset
 
-    def write_dof(self, body, dof):
+    def write_dof(self, body, dof, mesh_dir=None):
         rotomatrix = OrthoMatrix([0, 0, 0])
         self.write(f'\n// Information about {body.name} segment\n')
         parent = dof.parent_body.split("/")[-1]
         axis_offset = np.identity(3)
 
         # Parent offset
-        self._write_virtual_segment(body, dof, body.name + "_parent_offset", rt=0)
-        parent = body.name + "_parent_offset"
-
+        body_name = body.name + "_parent_offset"
+        offset = [dof.parent_offset_trans, dof.parent_offset_rot]
+        self._write_virtual_segment(body_name, parent, frame_offset=offset, rt=0)
+        parent = body_name
         # Coordinates
-        self.write("\t// Segments to define transformation axis.\n")
-        body_trans = body + '_translation'
         translations, q_ranges_trans, is_dof_trans, default_value_trans, \
-        rotations, q_ranges_rot, is_dof_rot,\
-        default_value_rot = self._get_transformations_parameters(dof.spatial_transform)
+            rotations, q_ranges_rot, is_dof_rot,\
+            default_value_rot = self._get_transformation_parameters(dof.spatial_transform)
 
+        is_dof_trans, is_dof_rot = np.array(is_dof_trans), np.array(is_dof_rot)
+        dof_axis = np.array(["x", "y", "z"])
+        if len(translations) != 0 or len(rotations) != 0:
+            self.write("\t// Segments to define transformation axis.\n")
         # Translations
-        if is_ortho_basis(translations):
-            axis_offset = self._write_ortho_trans_segment(translations, body, dof, rotomatrix, is_dof_trans, axis_offset)
-            parent = body_trans
-        else:
-            raise RuntimeError("Non orthogonal translation vector not implemented yet.")
+        if len(translations) != 0:
+            body_name = body.name + '_translation'
+            if is_ortho_basis(translations):
+                trans_axis = ''
+                for idx in np.where(is_dof_trans != 'None')[0]:
+                    trans_axis += dof_axis[idx]
+                axis_offset = self._write_ortho_segment(axis=translations,
+                                                        axis_offset=axis_offset,
+                                                        name=body_name,
+                                                        parent=parent,
+                                                        rt_in_matrix=1,
+                                                        frame_offset=rotomatrix,
+                                                        q_range=q_ranges_trans,
+                                                        trans_dof=trans_axis
+                                                        )
+                parent = body_name
+            else:
+                raise RuntimeError("Non orthogonal translation vector not implemented yet.")
 
-        # Rotations
-        if is_ortho_basis(rotations):
-            axis_offset = self._write_ortho_rot_segment(rotations, body, dof, rotomatrix, is_dof_trans, axis_offset)
-            parent = body.name + '_rotation_transform'
-        else:
-            axis_offset = self._write_non_ortho_rot_segment(rotations,
-                                                            rotomatrix,
-                                                            default_value_rot,
-                                                            is_dof_rot,
-                                                            q_ranges_rot,
-                                                            dof,
-                                                            body,
-                                                            axis_offset)
+            # Rotations
+        if len(rotations) != 0:
+            if is_ortho_basis(rotations):
+                rot_axis = ''
+                for idx in np.where(is_dof_rot != 'None')[0]:
+                    rot_axis += dof_axis[idx]
+                body_name = body.name + '_rotation_transform'
+                self.write("// Rotation transform was initially an orthogonal basis\n")
+                axis_offset = self._write_ortho_segment(axis=rotations,
+                                                        axis_offset=axis_offset,
+                                                        name=body_name,
+                                                        parent=parent,
+                                                        rt_in_matrix=1,
+                                                        frame_offset=rotomatrix,
+                                                        q_range=q_ranges_rot,
+                                                        rot_dof=rot_axis
+                                                        )
+                parent = body_name
+            else:
+                axis_offset = self._write_non_ortho_rot_segment(rotations,
+                                                                axis_offset,
+                                                                body_name,
+                                                                parent,
+                                                                frame_offset=rotomatrix,
+                                                                rt_in_matrix=1,
+                                                                spatial_transform=dof.spatial_transform,
+                                                                q_ranges=q_ranges_rot,
+                                                                default_values=default_value_rot,
+                                                                )
 
         # segment to cancel axis effects
         self.write("\n    // Segment to cancel transformation bases effect.\n")
         rotomatrix.set_rotation_matrix(inv(axis_offset))
-        self._write_virtual_segment(body, body + '_reset_axis', parent, rotomatrix, rt_in_matrix=1, true_segment=False)
-        parent = body.name + '_reset_axis'
+        body_name = body.name + '_reset_axis'
+        self._write_virtual_segment(body_name,
+                                    parent,
+                                    frame_offset=rotomatrix,
+                                    rt=1,
+                                    )
+        parent = body_name
 
         # True segment
         self.write("\n    //True segment where are applied inertial values.\n")
-        self._write_true_segement(body, body, parent, physical_offset[1], rt_in_matrix=0, true_segment=True)
-        parent = body
+        frame_offset = [dof.child_offset_trans, dof.child_offset_rot]
+
+        if body.mesh:
+            mesh_dir = mesh_dir if mesh_dir else "Geometry"
+            mesh_file = None if body.mesh[:2] == "//" else f"{mesh_dir}/{body.mesh}"
+        else:
+            mesh_file = None
+        body_name = body.name
+        self._write_true_segement(body_name,
+                                  parent,
+                                  frame_offset=frame_offset,
+                                  com=body.mass_center,
+                                  mass=body.mass,
+                                  inertia=body.inertia.split(" "),
+                                  mesh_file=mesh_file,
+                                  rt=0
+                                  )
 
 
 class Converter:
-    def __init__(self, biomod_path, osim_path, print_warnings=True, print_general_informations=True):
+    def __init__(self, biomod_path,
+                 osim_path,
+                 muscle_type=None,
+                 state_type=None,
+                 print_warnings=True,
+                 print_general_informations=True,
+                 ignore_clamped_dof_tag=False,
+                 ignore_fixed_dof_tag=False,
+                 mesh_dir=None,
+                 ignore_muscle_applied_tag=False,
+                 ):
         self.biomod_path = biomod_path
         self.osim_model = ReadOsim(osim_path)
         self.osim_path = osim_path
         self.writer = WriteBiomod(biomod_path)
         self.print_warnings = print_warnings
         self.print_general_informations = print_general_informations
-        self.infos, self.warnings = self.osim_model.infos, self.osim_model.get_warnings()
-        self.forces = self.osim_model.get_force_set()
-        self.joints = self.osim_model.get_join_set()
+        self.forces = self.osim_model.get_force_set(ignore_muscle_applied_tag)
+        self.joints = self.osim_model.get_join_set(ignore_fixed_dof_tag, ignore_clamped_dof_tag)
         self.bodies = self.osim_model.get_body_set()
         self.markers = self.osim_model.get_marker_set()
+        self.infos, self.warnings = self.osim_model.infos, self.osim_model.get_warnings()
         self.bodies = self.osim_model.add_markers_to_bodies(self.bodies, self.markers)
+        self.muscle_type = muscle_type if muscle_type else "hilldegroote"
+        self.state_type = state_type
+        self.mesh_dir = mesh_dir
+
+        if isinstance(self.muscle_type, MuscleType):
+            self.muscle_type = self.muscle_type.value
+        if isinstance(self.state_type, MuscleStateType):
+            self.state_type = self.state_type.value
+
+        if isinstance(muscle_type, str):
+            if self.muscle_type not in [e.value for e in MuscleType]:
+                raise RuntimeError(f"Muscle of type {self.muscle_type} is not a biorbd muscle.")
+
+        if isinstance(muscle_type, str):
+            if self.state_type not in [e.value for e in MuscleStateType]:
+                raise RuntimeError(f"Muscle state type {self.state_type} is not a biorbd muscle state type.")
+        if self.state_type == "default":
+            self.state_type = None
 
     def convert_file(self):
         # headers
@@ -505,15 +638,16 @@ class Converter:
         )
 
         # segment
-        # self.writer.write('\n// SEGMENT DEFINITION\n')
-        # for dof in self.joints:
-        #     for body in self.bodies:
-        #         if body.socket_frame == dof.child_body:
-        #             self.writer.write_dof(body, dof)
-        #             self.writer.write(f"\n\t// Markers\n")
-        #             for marker in body.markers:
-        #                 self.writer.write_marker(marker)
-        #
+        self.writer.write('\n// SEGMENT DEFINITION\n')
+        for dof in self.joints:
+            for body in self.bodies:
+                if body.socket_frame == dof.child_body:
+                    self.writer.write_dof(body, dof, self.mesh_dir)
+
+                    self.writer.write(f"\n\t// Markers\n")
+                    for marker in body.markers:
+                        self.writer.write_marker(marker)
+
         muscle_groups = []
         for muscle in self.forces:
             group = muscle.group
@@ -527,11 +661,10 @@ class Converter:
                 idx = []
                 self.writer.write_muscle_group(muscle_group)
                 for m, muscle in enumerate(muscles):
-                    print(muscle.applied)
                     if muscle.group == muscle_group:
                         if not muscle.applied:
                             self.writer.write("\n*/")
-                        self.writer.write_muscle(muscle)
+                        self.writer.write_muscle(muscle, self.muscle_type, self.state_type)
                         for via_point in muscle.via_point:
                             self.writer.write_via_point(via_point)
                         if not muscle.applied:
@@ -555,7 +688,15 @@ class Converter:
 if __name__ == '__main__':
     model_path = os.path.dirname(os.getcwd()) + "/Models/"
     model = ReadOsim(model_path + "Wu_Shoulder_Model_via_points.osim")
-    # model.BodySet().get_markers('thorax')
 
-    converter = Converter(model_path + "wu_converted_test.bioMod", model_path + "Wu_Shoulder_Model_via_points.osim")
+    converter = Converter(model_path + "Wu_Shoulder_Model_via_points_test.bioMod",
+                          model_path + "Wu_Shoulder_Model_via_points.osim",
+                          ignore_muscle_applied_tag=False,
+                          ignore_fixed_dof_tag=False,
+                          ignore_clamped_dof_tag=False,
+                          mesh_dir="Geometry",
+                          muscle_type=MuscleType.HILL,
+                          state_type=MuscleStateType.DEGROOTE,
+                          print_warnings=True,
+                          print_general_informations=True)
     converter.convert_file()

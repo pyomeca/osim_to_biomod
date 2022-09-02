@@ -1,4 +1,5 @@
 from utils import *
+from enums import *
 
 
 class Body:
@@ -50,16 +51,21 @@ class Joint:
         self.child_body = None
         self.parent_body = None
         self.spatial_transform = []
+        self.implemented_joint = [""]
+        self.function = False
 
-    def get_joint_attrib(self, element):
+    def get_joint_attrib(self, element, ignore_fixed, ignore_clamped):
         self.type = element.tag
+        if self.type not in [e.value for e in JointType]:
+            raise RuntimeError(f"Joint type {self.type} is not implemented yet."
+                               f"Allowed joint type are: {[e.value for e in JointType]}")
         self.name = (element.attrib["name"]).split("/")[-1]
         self.parent = find(element, "socket_parent_frame").split("/")[-1]
         self.child = find(element, "socket_child_frame").split("/")[-1]
 
         if element.find("coordinates") is not None:
             for coordinate in element.find("coordinates").findall("Coordinate"):
-                self.coordinates.append(Coordinate().get_coordinate_attrib(coordinate))
+                self.coordinates.append(Coordinate().get_coordinate_attrib(coordinate, ignore_fixed, ignore_clamped))
 
         if element.find("SpatialTransform") is not None:
             for i, transform in enumerate(element.find("SpatialTransform").findall("TransformAxis")):
@@ -71,6 +77,7 @@ class Joint:
                 for coordinate in self.coordinates:
                     if coordinate.name == spat_transform.coordinate_name:
                         spat_transform.coordinate = coordinate
+                self.function = spat_transform.function
                 self.spatial_transform.append(spat_transform)
 
         for frame in element.find("frames").findall("PhysicalOffsetFrame"):
@@ -112,13 +119,19 @@ class Coordinate:
         self.default_value = None
         self.range = []
         self.clamped = True
+        self.locked = False
 
-    def get_coordinate_attrib(self, element):
+    def get_coordinate_attrib(self, element, ignore_fixed=False, ignore_clamped=False):
         self.name = (element.attrib["name"]).split("/")[-1]
         self.default_value = find(element, "default_value")
         self.range = find(element, "range")
-        clamped = find(element, "clamped")
-        self.clamped = clamped == 'true' if clamped else None
+        if not ignore_clamped:
+            clamped = find(element, "clamped")
+            self.clamped = clamped == 'true' if clamped else False
+
+        if not ignore_fixed:
+            locked = find(element, "locked")
+            self.locked = locked == 'true' if locked else False
         return self
 
 
@@ -152,14 +165,14 @@ class Muscle:
         self.maximal_force = None
         self.tendon_slack_length = None
         self.pennation_angle = None
-        self.applied = None
+        self.applied = True
         self.pcsa = None
         self.maximal_velocity = None
         self.wrap = False
         self.group = None
         self.state_type = None
 
-    def get_muscle_attrib(self, element):
+    def get_muscle_attrib(self, element, ignore_applied):
         self.name = (element.attrib["name"]).split("/")[-1]
         self.maximal_force = find(element, "max_isometric_force")
         self.optimal_length = find(element, "optimal_fiber_length")
@@ -167,7 +180,7 @@ class Muscle:
         self.pennation_angle = find(element, "pennation_angle_at_optimal")
         self.maximal_velocity = find(element, "max_contraction_velocity")
 
-        if element.find("appliesForce") is not None:
+        if element.find("appliesForce") is not None and not ignore_applied:
             self.applied = element.find("appliesForce").text == 'true'
 
         for path_point_elt in element.find("GeometryPath").find("PathPointSet")[0].findall("PathPoint"):
