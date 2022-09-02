@@ -286,12 +286,12 @@ class WriteBiomod:
         self.write(f'\n\tendmuscle\n')
 
     def write_via_point(self, via_point):
-        self.write(f'\n\tviapoint\t{via_point.name}')
-        self.write(f'\n\t\tparent\t{via_point.body}')
-        self.write(f'\n\t\tmuscle\t{via_point.muscle}')
-        self.write(f'\n\t\tmusclegroup\t{via_point.muscle_group}')
-        self.write(f'\n\t\tposition\t{via_point.position}')
-        self.write('\n\tendviapoint')
+        self.write(f'\n\t\tviapoint\t{via_point.name}')
+        self.write(f'\n\t\t\tparent\t{via_point.body}')
+        self.write(f'\n\t\t\tmuscle\t{via_point.muscle}')
+        self.write(f'\n\t\t\tmusclegroup\t{via_point.muscle_group}')
+        self.write(f'\n\t\t\tposition\t{via_point.position}')
+        self.write('\n\t\tendviapoint')
         self.write('\n')
 
     def _write_generic_segment(self, name, parent, rt_in_matrix, frame_offset):
@@ -363,13 +363,21 @@ class WriteBiomod:
         if q_range:
             if not isinstance(q_range, list):
                 q_range = [q_range]
+            count = 0
+            for q in q_range:
+                if q[:2] == "//":
+                    count += 1
+
             for q, qrange in enumerate(q_range):
                 if rot_dof[:2] == "//":
                     range_to_write = f"\t\t\t\t//{qrange[2:]}\n"
                 else:
                     range_to_write = f"\t\t\t\t{qrange}\n"
                 if q == 0:
-                    self.write(f"\t\tranges\n")
+                    if count == len(q_range):
+                        self.write(f"\t\t// ranges\n")
+                    else:
+                        self.write(f"\t\tranges\n")
                 self.write(range_to_write)
         self.write(f'\tendsegment\n\n')
 
@@ -471,7 +479,7 @@ class WriteBiomod:
 
             frame_offset.set_rotation_matrix(axis_basis[i].dot(initial_rotation))
             count_dof_rot += 1
-            self._write_virtual_segment(name,
+            self._write_virtual_segment(body_dof,
                                         parent,
                                         frame_offset=frame_offset,
                                         q_range=q_range,
@@ -480,7 +488,7 @@ class WriteBiomod:
                                         )
             axis_offset = axis_offset.dot(frame_offset.get_rotation_matrix())
             parent = body_dof
-        return axis_offset
+        return axis_offset, parent
 
     def write_dof(self, body, dof, mesh_dir=None):
         rotomatrix = OrthoMatrix([0, 0, 0])
@@ -507,7 +515,7 @@ class WriteBiomod:
             body_name = body.name + '_translation'
             if is_ortho_basis(translations):
                 trans_axis = ''
-                for idx in np.where(is_dof_trans != 'None')[0]:
+                for idx in np.where(is_dof_trans is None)[0]:
                     trans_axis += dof_axis[idx]
                 axis_offset = self._write_ortho_segment(axis=translations,
                                                         axis_offset=axis_offset,
@@ -526,7 +534,7 @@ class WriteBiomod:
         if len(rotations) != 0:
             if is_ortho_basis(rotations):
                 rot_axis = ''
-                for idx in np.where(is_dof_rot != 'None')[0]:
+                for idx in np.where(is_dof_rot is None)[0]:
                     rot_axis += dof_axis[idx]
                 body_name = body.name + '_rotation_transform'
                 self.write("// Rotation transform was initially an orthogonal basis\n")
@@ -541,7 +549,8 @@ class WriteBiomod:
                                                         )
                 parent = body_name
             else:
-                axis_offset = self._write_non_ortho_rot_segment(rotations,
+                body_name = body.name
+                axis_offset, parent = self._write_non_ortho_rot_segment(rotations,
                                                                 axis_offset,
                                                                 body_name,
                                                                 parent,
