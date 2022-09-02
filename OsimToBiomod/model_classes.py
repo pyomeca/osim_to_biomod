@@ -201,6 +201,7 @@ class Muscle:
 
         self.insersion = self.via_point[-1].position
         self.origin = self.via_point[0].position
+        self.via_point = self.via_point[1:-1]
 
         return self
 
