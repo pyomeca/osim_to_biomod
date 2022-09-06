@@ -3,7 +3,7 @@ import os
 from OsimToBiomod.enums import *
 
 if __name__ == "__main__":
-    model_path = os.path.dirname(os.getcwd()) + "/Models/"
+    model_path = "Models/"
     converter = Converter(
         model_path + "Wu_Shoulder_Model_via_points_test.bioMod",
         model_path + "Wu_Shoulder_Model_via_points.osim",

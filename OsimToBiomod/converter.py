@@ -342,7 +342,8 @@ class WriteBiomod:
                 f"\t\t\t{r41}\t\t{r42}\t\t{r43}\t\t{r44}\n"
             )
 
-    def _write_true_segement(self, name, parent_name, frame_offset, com, mass, inertia, mesh_file=None, rt=0):
+    def _write_true_segement(self, name, parent_name, frame_offset, com, mass, inertia, mesh_file=None,
+                             mesh_scale=None, mesh_color=None, rt=0):
         """
         Segment where is applied inertia.
         """
@@ -356,6 +357,10 @@ class WriteBiomod:
         self.write(f"\t\tcom\t{com}\n")
         if mesh_file:
             self.write(f"\t\tmeshfile\t{mesh_file}\n")
+            if mesh_color:
+                self.write(f"\t\tmeshcolor\t{mesh_color}\n")
+            if mesh_scale:
+                self.write(f"\t\tmeshscale\t{mesh_scale}\n")
         self.write(f"\tendsegment\n")
 
     def _write_virtual_segment(self, name, parent_name, frame_offset, q_range=None, rt=0, trans_dof="", rot_dof=""):
@@ -618,6 +623,8 @@ class WriteBiomod:
             mass=body.mass,
             inertia=body.inertia.split(" "),
             mesh_file=mesh_file,
+            mesh_color=body.mesh_color,
+            mesh_scale=body.mesh_scale_factor,
             rt=0,
         )
 
@@ -684,7 +691,6 @@ class Converter:
             for body in self.bodies:
                 if body.socket_frame == dof.child_body:
                     self.writer.write_dof(body, dof, self.mesh_dir)
-
                     self.writer.write(f"\n\t// Markers\n")
                     for marker in body.markers:
                         self.writer.write_marker(marker)
@@ -724,8 +730,3 @@ class Converter:
             self.writer.write("*/\n")
         self.writer.biomod_file.close()
         print(f"\nYour file {self.osim_path} has been converted into {self.biomod_path}.")
-
-
-if __name__ == "__main__":
-
-    model = ReadOsim(model_path + "Wu_Shoulder_Model_via_points.osim")
