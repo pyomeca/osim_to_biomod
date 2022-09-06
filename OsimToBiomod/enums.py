@@ -15,7 +15,7 @@ class MuscleStateType(Enum):
 
 class JointType(Enum):
     WELD_JOINT = "WeldJoint"
-    CUSTOM_JOINT = 'CustomJoint'
+    CUSTOM_JOINT = "CustomJoint"
 
 
 class ForceType(Enum):

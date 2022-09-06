@@ -31,8 +31,10 @@ class Body:
             mesh_list = element.find("attached_geometry").findall("Mesh")
             if mesh_list:
                 if len(mesh_list) > 1:
-                    self.mesh = f'{element.find("attached_geometry").find("Mesh").find("mesh_file").text}' \
-                                f' // Several mesh are not allowed in biomod for one segment so the first one was kept.'
+                    self.mesh = (
+                        f'{element.find("attached_geometry").find("Mesh").find("mesh_file").text}'
+                        f" // Several mesh are not allowed in biomod for one segment so the first one was kept."
+                    )
                 elif len(mesh_list) == 1:
                     self.mesh = element.find("attached_geometry").find("Mesh").find("mesh_file").text
         return self
@@ -58,8 +60,10 @@ class Joint:
     def get_joint_attrib(self, element, ignore_fixed, ignore_clamped):
         self.type = element.tag
         if self.type not in [e.value for e in JointType]:
-            raise RuntimeError(f"Joint type {self.type} is not implemented yet."
-                               f"Allowed joint type are: {[e.value for e in JointType]}")
+            raise RuntimeError(
+                f"Joint type {self.type} is not implemented yet."
+                f"Allowed joint type are: {[e.value for e in JointType]}"
+            )
         self.name = (element.attrib["name"]).split("/")[-1]
         self.parent = find(element, "socket_parent_frame").split("/")[-1]
         self.child = find(element, "socket_child_frame").split("/")[-1]
@@ -100,8 +104,8 @@ class Joint:
         R = compute_matrix_rotation(offset_child_rot).T
         new_translation = -np.dot(R.T, offset_child_trans)
         new_rotation = -rot2eul(R)
-        new_rotation_str = ''
-        new_translation_str = ''
+        new_rotation_str = ""
+        new_translation_str = ""
         for i in range(3):
             if i == 0:
                 pass
@@ -128,11 +132,11 @@ class Coordinate:
         self.range = find(element, "range")
         if not ignore_clamped:
             clamped = find(element, "clamped")
-            self.clamped = clamped == 'true' if clamped else False
+            self.clamped = clamped == "true" if clamped else False
 
         if not ignore_fixed:
             locked = find(element, "locked")
-            self.locked = locked == 'true' if locked else False
+            self.locked = locked == "true" if locked else False
         return self
 
 
@@ -182,7 +186,7 @@ class Muscle:
         self.maximal_velocity = find(element, "max_contraction_velocity")
 
         if element.find("appliesForce") is not None and not ignore_applied:
-            self.applied = element.find("appliesForce").text == 'true'
+            self.applied = element.find("appliesForce").text == "true"
 
         for path_point_elt in element.find("GeometryPath").find("PathPointSet")[0].findall("PathPoint"):
             via_point = PathPoint().get_path_point_attrib(path_point_elt)
@@ -234,6 +238,5 @@ class Marker:
         self.position = find(element, "location")
         self.parent = find(element, "socket_parent_frame").split("/")[-1]
         fixed = find(element, "fixed")
-        self.fixed = fixed == 'true' if fixed else None
+        self.fixed = fixed == "true" if fixed else None
         return self
-
