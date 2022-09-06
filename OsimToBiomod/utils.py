@@ -1,86 +1,38 @@
-import inspect
 import numpy as np
 
 
-def new_text(element):
-    if type(element) == str:
-        return element
-    else:
-        return element.text
-
-
-def index_go_to(_root, _tag, _attrib='False', _attribvalue='', index=''):
-    # return index to go to _tag which can have condition on its attribute
-    i = 0
-    for _child in _root:
-        if type(_child) == str:
-            return ''
-        if _attrib != 'False':
-            if _child.tag == _tag and _child.get(_attrib) == _attribvalue:
-                return index + '[{}]'.format(i)
-            else:
-                i += 1
-        else:
-            if _child.tag == _tag:
-                return index + '[{}]'.format(i)
-            else:
-                i += 1
-                # not found in children, go to grand children
-    else:
-        j = 0
-        if _root is not None:
-            for _child in _root:
-                a = index_go_to(_child, _tag, _attrib, _attribvalue, index + '[{}]'.format(j))
-                if a:
-                    return a
-                else:
-                    j += 1
-            else:
-                return None
-
-
-def go_to(_root, _tag, _attrib='False', _attribvalue=''):
-    # return element corresponding to _tag
-    # which can have condition on its attribute
-    _index = index_go_to(_root, _tag, _attrib, _attribvalue)
-    if _index is None:
-        return 'None'
-    else:
-        _index = index_go_to(_root, _tag, _attrib, _attribvalue)
-        return eval(retrieve_name(_root) + _index)
-
-
-def retrieve_name(var):
-    """
-    Gets the name of var. Does it from the out most frame inner-wards.
-    :param var: variable to get name from.
-    :return: string
-    """
-    for fi in reversed(inspect.stack()):
-        names = [var_name for var_name, var_val in fi.frame.f_locals.items() if var_val is var]
-        if len(names) > 0:
-            return names[0]
-
-
 def compute_matrix_rotation(_rot_value):
-    rot_x = np.array([[1, 0, 0],
-                      [0, np.cos(_rot_value[0]), - np.sin(_rot_value[0])],
-                      [0, np.sin(_rot_value[0]), np.cos(_rot_value[0])]])
+    rot_x = np.array(
+        [
+            [1, 0, 0],
+            [0, np.cos(_rot_value[0]), -np.sin(_rot_value[0])],
+            [0, np.sin(_rot_value[0]), np.cos(_rot_value[0])],
+        ]
+    )
 
-    rot_y = np.array([[np.cos(_rot_value[1]), 0, np.sin(_rot_value[1])],
-                      [0, 1, 0],
-                      [-np.sin(_rot_value[1]), 0, np.cos(_rot_value[1])]])
+    rot_y = np.array(
+        [
+            [np.cos(_rot_value[1]), 0, np.sin(_rot_value[1])],
+            [0, 1, 0],
+            [-np.sin(_rot_value[1]), 0, np.cos(_rot_value[1])],
+        ]
+    )
 
-    rot_z = np.array([[np.cos(_rot_value[2]), - np.sin(_rot_value[2]), 0],
-                      [np.sin(_rot_value[2]), np.cos(_rot_value[2]), 0],
-                      [0, 0, 1]])
+    rot_z = np.array(
+        [
+            [np.cos(_rot_value[2]), -np.sin(_rot_value[2]), 0],
+            [np.sin(_rot_value[2]), np.cos(_rot_value[2]), 0],
+            [0, 0, 1],
+        ]
+    )
     rot_matrix = np.dot(rot_z, np.dot(rot_y, rot_x))
     return rot_matrix
 
+
 def rot2eul(R):
-    beta = -np.arcsin(R[2,0])
-    alpha = np.arctan2(R[2,1],R[2,2])
-    gamma = np.arctan2(R[1,0],R[0,0])
+    beta = -np.arcsin(R[2, 0])
+    alpha = np.arctan2(R[2, 1], R[2, 2])
+    gamma = np.arctan2(R[1, 0], R[0, 0])
     return np.array((alpha, beta, gamma))
 
 
@@ -90,18 +42,18 @@ def coord_sys(axis):
     if a == 0:
         if b == 0:
             if c == 0:
-                return [[1, 0, 0], [0, 1, 0], [0, 0, 1]], ''
+                return [[1, 0, 0], [0, 1, 0], [0, 0, 1]], ""
             else:
-                return [[1, 0, 0], [0, 1, 0], [0, 0, 1]], 'z'
+                return [[1, 0, 0], [0, 1, 0], [0, 0, 1]], "z"
         else:
             if c == 0:
-                return [[1, 0, 0], [0, 1, 0], [0, 0, 1]], 'y'
+                return [[1, 0, 0], [0, 1, 0], [0, 0, 1]], "y"
             else:
                 y_temp = [0, -c / b, 1]
     else:
         if b == 0:
             if c == 0:
-                return [[1, 0, 0], [0, 1, 0], [0, 0, 1]], 'x'
+                return [[1, 0, 0], [0, 1, 0], [0, 0, 1]], "x"
             else:
                 y_temp = [-c / a, 0, 1]
         else:
@@ -113,7 +65,7 @@ def coord_sys(axis):
     x = [1 / norm_x_temp * x_el for x_el in x_temp]
     z = [1 / norm_z_temp * z_el for z_el in z_temp]
     y = [y_el for y_el in np.cross(z, x)]
-    return [x, y, z], ''
+    return [x, y, z], ""
 
 
 def ortho_norm_basis(vector, idx):
@@ -141,7 +93,11 @@ def ortho_norm_basis(vector, idx):
 
 
 def is_ortho_basis(basis):
-    return False if np.dot(basis[0], basis[1]) != 0 or np.dot(basis[1], basis[2]) != 0 or np.dot(basis[0], basis[2]) != 0 else True
+    return (
+        False
+        if np.dot(basis[0], basis[1]) != 0 or np.dot(basis[1], basis[2]) != 0 or np.dot(basis[0], basis[2]) != 0
+        else True
+    )
 
 
 class OrthoMatrix:
@@ -193,3 +149,10 @@ def out_product(rotomatrix_1, rotomatrix_2):
     rotomatrix_prod.set_rotation_matrix(rotomatrix_1.get_rotation_matrix().dot(rotomatrix_2.get_rotation_matrix()))
     rotomatrix_prod.get_matrix()
     return rotomatrix_prod
+
+
+def find(element, string):
+    if element.find(string) is not None:
+        return element.find(string).text
+    else:
+        return None

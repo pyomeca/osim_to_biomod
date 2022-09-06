@@ -1,819 +1,731 @@
 from lxml import etree
-from OsimToBiomod.utils import *
+import xml.etree.ElementTree as ET
 from numpy.linalg import inv
 import os
+from OsimToBiomod.model_classes import *
 
 
-# TODO :
-#   - Add class for joints, bodies, muscles, markers
+class ReadOsim:
+    def __init__(self, osim_path, print_warnings: bool = True):
+        self.osim_path = osim_path
+        self.osim_model = etree.parse(self.osim_path)
+        self.model = ET.parse(self.osim_path)
+        self.root = self.model.getroot()[0]
+        self.print_warnings = print_warnings
+        if self.get_file_version() < 40000:
+            raise RuntimeError(
+                "Osim file version must be superior or equal than '40000' and you have"
+                f" : {self.get_file_version()}."
+                "To convert the osim file to the newest version please open and save your file in"
+                "Opensim 4.0 or latter."
+            )
 
-class Converter:
+        self.gravity = "0 0 9.81"
+        self.ground_elt, self.default_elt, self.credit, self.publications = None, None, None, None
+        self.bodyset_elt, self.jointset_elt, self.forceset_elt, self.markerset_elm = None, None, None, None
+        self.controllerset_elt, self.constraintset_elt, self.contact_geometryset_elt = None, None, None
+        self.componentset_elt, self.probeset_elt = None, None
+        self.length_units, self.force_units = None, None
 
-    def __init__(self, path, origin_file, muscle_type):
-        self.path = path
-        self.origin_file = origin_file
-        self.version = str(4)
-        self.muscle_type = muscle_type
-        self.data_origin = etree.parse(self.origin_file)
-        self.root = self.data_origin.getroot()
-        if int(self.root.attrib['Version']) < 40000:
-            raise RuntimeError("Converter not implemented with file under version 40000."
-                               "Please save your file into OpenSim 4.0 or more to converter your file version.")
-        self.file = open(self.path, 'w')
-        self.file.write('version ' + self.version + '\n')
-        self.file.write('\n// File extracted from ' + self.origin_file)
-        self.file.write('\n')
+        for element in self.root:
+            if element.tag == "gravity":
+                self.gravity = element.text
+            elif element.tag == "Ground":
+                self.ground_elt = element
+            elif element.tag == "defaults":
+                self.default_elt = element
+            elif element.tag == "BodySet":
+                self.bodyset_elt = element
+            elif element.tag == "JointSet":
+                self.jointset_elt = element
+            elif element.tag == "ControllerSet":
+                self.controllerset_elt = element
+            elif element.tag == "ConstraintSet":
+                self.constraintset_elt = element
+            elif element.tag == "ForceSet":
+                self.forceset_elt = element
+            elif element.tag == "MarkerSet":
+                self.markerset_elt = element
+            elif element.tag == "ContactGeometrySet":
+                self.contact_geometryset_elt = element
+            elif element.tag == "ComponentSet":
+                self.componentset_elt = element
+            elif element.tag == "ProbeSet":
+                self.probeset_elt = element
+            elif element.tag == "credits":
+                self.credit = element.text
+            elif element.tag == "publications":
+                self.publications = element.text
+            elif element.tag == "length_units":
+                self.length_units = element.text
+                if self.length_units != "meters":
+                    raise RuntimeError("Lengths units must be in meters.")
+            elif element.tag == "force_units":
+                self.force_units = element.text
+            else:
+                raise RuntimeError(
+                    f"Element {element.tag} not recognize. Please verify your xml file or send an issue"
+                    f" in the github repository."
+                )
 
-    def get_frames_offsets(self, _joint, _joint_type):
-        offset_data = []
-        if _joint == 'None':
-            return [[], []]
+        self.bodies = []
+        self.forces = []
+        self.joints = []
+        self.markers = []
+        self.constraint_set = []
+        self.controller_set = []
+        self.prob_set = []
+        self.component_set = []
+        self.geometry_set = []
+        self.warnings = []
+        self.infos = {}
+        self._get_infos()
 
-        joint_of_interest = go_to(self.root, _joint_type, 'name', _joint)
-        for i_att in joint_of_interest.getchildren():
-            info = {}
-            if i_att.tag =='frames':
-                for j in i_att.getchildren():
-                    for j_info in j.getchildren():
-                        if j_info.tag in ['socket_parent', 'translation', 'orientation']:
-                            info.update({j_info.tag:j_info.text})
-                    offset_data.append(info.copy())
-
-        # Todo : add check that first is parent and second is child
-        offset_parent = [[float(i.replace(',', '.')) for i in offset_data[0]['translation'].split(' ')],
-                         [float(i.replace(',', '.')) for i in offset_data[0]['orientation'].split(' ')]]
-        offset_child = [[float(i.replace(',', '.')) for i in offset_data[1]['translation'].split(' ')],
-                        [-float(i.replace(',', '.')) for i in offset_data[1]['orientation'].split(' ')]]
-
-        if any([item for sublist in offset_child for item in sublist]):
-            R = compute_matrix_rotation(offset_child[1]).T
-            new_translation = -np.dot(R.T, offset_child[0])
-            new_rotation = -rot2eul(R)
-            offset_child = [new_translation, new_rotation]
-
-        return [offset_parent, offset_child]
-
-    def matrix_inertia(self, _body):
-        _ref = new_text(go_to(go_to(self.root, 'Body', 'name', _body), 'inertia'))
-        if _ref != 'None':
-            _inertia_str = _ref
-            _inertia = [float(s.replace(',', '.')) for s in _inertia_str.split(' ')]
-            return _inertia
+    @staticmethod
+    def _is_element_empty(element):
+        if element:
+            if not element[0].text:
+                return True
+            else:
+                return False
         else:
-            return 'None'
+            return True
 
-    def muscle_list(self, muscle_type):
-        _list = []
-        for _muscle in self.data_origin.xpath(
-                f'/OpenSimDocument/Model/ForceSet/objects/{muscle_type}'):
-            _list.append(_muscle.get("name"))
-        return _list
+    def get_body_set(self):
+        bodies = []
+        if self._is_element_empty(self.bodyset_elt):
+            return None
+        else:
+            for element in self.bodyset_elt[0]:
+                bodies.append(Body().get_body_attrib(element))
+            return bodies
 
-    def list_pathpoint_muscle(self, _muscle, muscle_type):
-        # return list of viapoint for each muscle
-        _viapoint = []
-        # TODO warning for other type of pathpoint
-        index_pathpoint = index_go_to(go_to(self.root, muscle_type, 'name', _muscle), 'PathPoint')
-        _list_index = list(index_pathpoint)
-        _tronc_list_index = _list_index[:len(_list_index) - 2]
-        _tronc_index = ''.join(_tronc_list_index)
-        index_root = index_go_to(self.root, muscle_type, 'name', _muscle)
-        index_tronc_total = index_root + _tronc_index
-        i = 0
-        while True:
-            try:
-                child = eval('self.root' + index_tronc_total + str(i) + ']')
-                _viapoint.append(child.get("name"))
-                i += 1
-            except:  # Exception as e:   print('Error', e)
-                break
-        return _viapoint
-
-    def list_markers_body(self, _body):
-        # return list of transformation for each body
+    def get_marker_set(self):
         markers = []
-        index_markers = index_go_to(self.root, 'Marker')
-        if index_markers is None:
-            return []
+        if self._is_element_empty(self.markerset_elt):
+            return None
         else:
-            _list_index = list(index_markers)
-            _tronc_list_index = _list_index[:len(_list_index) - 2]
-            _tronc_index = ''.join(_tronc_list_index)
-            i = 0
-            while True:
-                try:
-                    child = eval('self.root' + _tronc_index + str(i) + ']').get('name')
-                    which_body = new_text(go_to(go_to(self.root, 'Marker', 'name', child), 'socket_parent_frame'))[
-                                 9:]
-                    if which_body == _body:
-                        markers.append(child) if child is not None else True
-                    i += 1
-                except:
-                    break
+            for element in self.markerset_elt[0]:
+                markers.append(Marker().get_marker_attrib(element))
             return markers
 
-    def dof_of_joint(self, _joint, _joint_type):
-        dof = []
-        _index_dof = index_go_to(go_to(self.root, _joint_type, 'name', _joint), 'Coordinate')
-        if _index_dof is None:
-            return []
+    def get_force_set(self, ignore_muscle_applied_tag=False):
+        forces = []
+        wrap = []
+        if self._is_element_empty(self.forceset_elt):
+            return None
         else:
-            _list_index = list(_index_dof)
-            _tronc_list_index = _list_index[:len(_list_index) - 2]
-            _tronc_index = ''.join(_tronc_list_index)
-            _index_root = index_go_to(self.root, _joint_type, 'name', _joint)
-            _index_tronc_total = _index_root + _tronc_index
-            i = 0
-            while True:
-                try:
-                    child = eval('self.root' + _index_tronc_total + str(i) + ']')
-                    if child.get('name') is not None:
-                        dof.append(child.get("name"))
-                    i += 1
-                except:
-                    break
-        return dof
+            for element in self.forceset_elt[0]:
+                if "Muscle" in element.tag:
+                    forces.append(Muscle().get_muscle_attrib(element, ignore_muscle_applied_tag))
+                    if forces[-1].wrap:
+                        wrap.append(forces[-1].name)
+                elif "Force" in element.tag or "Actuator" in element.tag:
+                    self.warnings.append(
+                        f"Some {element.tag} were present in the original file force set."
+                        " Only muscles are supported so their will be ignored."
+                    )
+            if len(wrap) != 0:
+                self.warnings.append(
+                    f"Some wrapping objects were present on the muscles :{wrap}"
+                    " in the original file force set.\n"
+                    " Only via point are supported in biomod so their will be ignored."
+                )
+
+            return forces
+
+    def get_join_set(self, ignore_fixed_dof_tag=False, ignore_clamped_dof_tag=False):
+        joints = []
+        if self._is_element_empty(self.forceset_elt):
+            return None
+        else:
+            for element in self.jointset_elt[0]:
+                joints.append(Joint().get_joint_attrib(element, ignore_fixed_dof_tag, ignore_clamped_dof_tag))
+                if joints[-1].function:
+                    self.warnings.append(
+                        f"Some functions were present for the {joints[-1].name} joint."
+                        " This feature is not implemented in biorbd yet so it will be ignored."
+                    )
+            joints = self._reorder_joints(joints)
+            return joints
 
     @staticmethod
-    def parent_child(_child, list_joint):
-        # return parent of a child
-        # suppose that a parent can only have one child
-        for _joint in list_joint:
-            if _joint[2] == _child:
-                return _joint[1]
-        else:
-            return 'None'
-
-    @staticmethod
-    def joint_body(_body, list_joint):
-        # return the joint to which the body is child
-        for _joint in list_joint:
-            if _joint[2] == _body:
-                return _joint[0], _joint[3]
-        else:
-            return 'None', 'None'
-
-    def transform_of_joint(self, _joint, _joint_type):
-        _translation = []
-        _rotation = []
-        if _joint == 'None':
-            return [[], []]
-        _index_transform = index_go_to(go_to(self.root, _joint_type, 'name', _joint), 'TransformAxis')
-        if _index_transform is None:
-            return [[], []]
-        else:
-            _list_index = list(_index_transform)
-            _tronc_list_index = _list_index[:len(_list_index) - 2]
-            _tronc_index = ''.join(_tronc_list_index)
-            _index_root = index_go_to(self.root, _joint_type, 'name', _joint)
-            if not _index_root:
+    def add_markers_to_bodies(bodies, markers):
+        for b, body in enumerate(bodies):
+            try:
+                for marker in markers:
+                    if body.socket_frame == marker.parent:
+                        bodies[b].markers.append(marker)
+            except:
                 pass
-            _index_tronc_total = _index_root + _tronc_index
-            i = 0
-            while True:
-                try:
-                    child = eval('self.root' + _index_tronc_total + str(i) + ']')
-                    if child.get('name') is not None:
-                        _translation.append(child.get("name")) \
-                            if child.get('name').find('translation') == 0 else True
-                        _rotation.append(child.get("name")) \
-                            if child.get('name').find('rotation') == 0 else True
-                    i += 1
-                except:  # Exception as e:  print('Error', e)
-                    break
-        return [_translation, _rotation]
-
-    def get_body_pathpoint(self, _pathpoint, muscle, muscle_type):
-        return new_text(
-            go_to(go_to(go_to(self.root, muscle_type, 'name', muscle), 'PathPoint', 'name', _pathpoint),
-                  'socket_parent_frame'))[9:]
-        # while True:
-        #     try:
-        #         if index_go_to(go_to(self.root, 'PathPoint', 'name', _pathpoint),
-        #                        'socket_parent_frame') is not None or '':
-        #             _ref = new_text(go_to(
-        #                 go_to(self.root, 'PathPoint', 'name', _pathpoint), 'socket_parent_frame'))
-        #             return _ref[9:]
-        #         if index_go_to(go_to(self.root, 'ConditionalPathPoint', 'name', _pathpoint),
-        #                        'socket_parent_frame') is not None or '':
-        #             _ref = new_text(go_to(
-        #                 go_to(self.root, 'ConditionalPathPoint', 'name', _pathpoint), 'socket_parent_frame'))
-        #             return _ref[9:]
-        #         if index_go_to(go_to(self.root, 'MovingPathPoint', 'name', _pathpoint),
-        #                        'socket_parent_frame') is not None or '':
-        #             _ref = new_text(
-        #                 go_to(go_to(self.root, 'MovingPathPoint', 'name', _pathpoint), 'socket_parent_frame'))
-        #             return _ref[9:]
-        #         else:
-        #             return 'None'
-        #     except Exception as e:
-        #         break
-
-    def get_pos(self, _pathpoint, muscle, muscle_type):
-        return new_text(go_to(go_to(go_to(self.root, muscle_type, 'name', muscle), 'PathPoint', 'name', _pathpoint),
-                       'location'))
-        # while True:
-        #     try:
-        #         if index_go_to(go_to(self.root, 'PathPoint', 'name', _pathpoint), 'location') != '':
-        #             return new_text(go_to(go_to(self.root, 'PathPoint', 'name', _pathpoint), 'location'))
-        #         elif index_go_to(go_to(self.root, 'ConditionalPathPoint', 'name', _pathpoint), 'location') != '':
-        #             return new_text(go_to(go_to(self.root, 'ConditionalPathPoint', 'name', _pathpoint), 'location'))
-        #         elif index_go_to(go_to(self.root, 'MovingPathPoint', 'name', _pathpoint), 'location') != '':
-        #             return new_text(go_to(go_to(self.root, 'MovingPathPoint', 'name', _pathpoint), 'location'))
-        #         else:
-        #             return 'None'
-        #     except Exception as e:
-        #         break
+        return bodies
 
     @staticmethod
-    def muscle_group_reference(_muscle, ref_group):
-        for el in ref_group:
-            if _muscle == el[0]:
-                return el[1]
+    def _reorder_joints(joints: list):
+        ordered_joints = [joints[0]]
+        joints.pop(0)
+        while len(joints) != 0:
+            for o, ord_joint in enumerate(ordered_joints):
+                idx = []
+                for j, joint in enumerate(joints):
+                    if joint.parent == ord_joint.child:
+                        ordered_joints = ordered_joints + [joint]
+                        idx.append(j)
+                    elif ord_joint.parent == joint.child:
+                        ordered_joints = [joint] + ordered_joints
+                        idx.append(j)
+                if len(idx) != 0:
+                    joints.pop(idx[0])
+                elif len(idx) > 1:
+                    raise RuntimeError("Two segment can't have the same parent in a biomod.")
+        return ordered_joints
+
+    def get_controller_set(self):
+        if self._is_element_empty(self.controllerset_elt):
+            self.controller_set = None
         else:
-            return 'None'
+            self.warnings.append(
+                "Some controllers were present in the original file."
+                " This feature is not implemented in biorbd yet so it will be ignored."
+            )
 
-    # TODO change spaces into \t
-    def printing_segment(
-            self,
-            _body,
-            _name,
-            parent_name,
-            frame_offset,
-            rt_in_matrix=0,
-            true_segment=False,
-            _dof_total_trans='',
-            _dof_total_rot='',
-            _range_q=None,
-            _is_dof='False'
-    ):
-        if rt_in_matrix not in [0, 1]:
-            raise RuntimeError('rt_in_matrix can be only set to 1 or 0.')
-        if rt_in_matrix == 1:
-            [[r14], [r24], [r34]] = frame_offset.get_translation().tolist()
-            [r41, r42, r43, r44] = [0, 0, 0, 1]
-            for i in range(3):
-                for j in range(3):
-                    globals()['r' + str(i + 1) + str(j + 1)] = round(frame_offset.get_rotation_matrix()[i][j], 9)
-                    # globals()['r' + str(i + 1) + str(j + 1)] = frame_offset.get_rotation_matrix()[i][j]
-        range_q = ''
-        if _range_q is not None and len(_range_q) != 0:
-            if isinstance(_range_q, list):
-                _range_q = np.array(_range_q)
-            if len(_range_q.shape) == 1:
-                _range_q = _range_q.reshape(1, 2)
-            for i in range(_range_q.shape[0]):
-                range_q += f'\t{_range_q[i, 0]}\t{_range_q[i, 1]}\n'
-
-        # for i in _range_q:
-        #     range_q_text += f'               {i[0]}\t{i[1]}\n'
-        [i11, i22, i33, i12, i13, i23] = self.matrix_inertia(_body)
-        mass = new_text(go_to(go_to(self.root, 'Body', 'name', _body), 'mass'))
-        com = new_text(go_to(go_to(self.root, 'Body', 'name', _body), 'mass_center'))
-        path_mesh_file = new_text(go_to(go_to(self.root, 'Body', 'name', _body), 'mesh_file'))
-        # TODO add mesh files
-
-        # writing data
-        self.write('    // Segment\n')
-        self.write('    segment {}\n'.format(_name)) if _name != 'None' else self.write('')
-        self.write('        parent {} \n'.format(parent_name)) if (
-                    parent_name != 'None' or parent_name != 'ground') else self.write('')
-        self.write('        RTinMatrix    {}\n'.format(rt_in_matrix)) if rt_in_matrix != 'None' else self.write(
-            '')
-        if rt_in_matrix == 0:
-            self.write('        RT\t{}\txyz\t{}\n'.
-                       format(' '.join(map(str, frame_offset[1])), ' '.join(map(str, frame_offset[0]))))
+    def _get_constraint_set(self):
+        if self._is_element_empty(self.constraintset_elt):
+            self.constraintset_elt = None
         else:
-            self.write('        RT\n')
-            self.write(
-                '            {}    {}    {}    {}\n'
-                '            {}    {}    {}    {}\n'
-                '            {}    {}    {}    {}\n'
-                '            {}    {}    {}    {}\n'
-                    .format(r11, r12, r13, r14,
-                            r21, r22, r23, r24,
-                            r31, r32, r33, r34,
-                            r41, r42, r43, r44))
+            self.warnings.append(
+                "Some constraints were present in the original file."
+                " This feature is not implemented in biorbd yet so it will be ignored."
+            )
 
-        self.write(f'        translations {_dof_total_trans}\n'
-                   )if _dof_total_trans != '' else True
+    def _get_contact_geometry_set(self):
+        if self._is_element_empty(self.contact_geometryset_elt):
+            self.contact_geometryset_elt = None
+        else:
+            self.warnings.append(
+                "Some contact geometry were present in the original file."
+                " This feature is not implemented in biorbd yet so it will be ignored."
+            )
 
-        self.write(f'        rotations {_dof_total_rot}\n') if _is_dof == 'True' and _dof_total_rot != '' else True
+    def _get_component_set(self):
+        if self._is_element_empty(self.componentset_elt):
+            self.componentset_elt = None
+        else:
+            self.warnings.append(
+                "Some additional components were present in the original file."
+                " This feature is not implemented in biorbd yet so it will be ignored."
+            )
 
-        if _range_q is not None and len(_range_q) != 0:
-            self.write('        ranges\t'
-                       '{}'.format(range_q))
-        self.write('        mass {}\n'.format(mass)) if true_segment is True else True
-        self.write('        inertia\n'
-                   '            {}    {}    {}\n'
-                   '            {}    {}    {}\n'
-                   '            {}    {}    {}\n'
-                   .format(i11, i12, i13,
-                           i12, i22, i23,
-                           i13, i23, i33)) if true_segment is True else True
-        self.write('        com    {}\n'.format(com)) if true_segment is True else True
-        self.write('        meshfile Geometry/{}\n'
-                   .format(path_mesh_file)) if path_mesh_file != 'None' and true_segment else True
-        self.write('    endsegment\n')
+    def _get_probe_set(self):
+        if self._is_element_empty(self.probeset_elt):
+            self.probeset_elt = None
+        else:
+            self.warnings.append(
+                "Some probes were present in the original file."
+                " This feature is not implemented in biorbd yet so it will be ignored."
+            )
 
-    def __getattr__(self, attr):
-        print(f'Error : {attr} is not an attribute of this class')
+    def get_warnings(self):
+        self._get_probe_set()
+        self._get_component_set()
+        self._get_contact_geometry_set()
+        self._get_constraint_set()
+        return self.warnings
 
-    def get_path(self):
-        return self.path
+    def get_file_version(self):
+        return int(self.model.getroot().attrib["Version"])
+
+    def _get_infos(self):
+        if self.publications:
+            self.infos["Publication"] = self.publications
+        if self.credit:
+            self.infos["Credit"] = self.credit
+        if self.force_units:
+            self.infos["Force units"] = self.force_units
+        if self.length_units:
+            self.infos["Length units"] = self.length_units
+
+
+class WriteBiomod:
+    def __init__(self, biomod_path):
+        self.biomod_path = biomod_path
+        self.version = str(4)
+        self.biomod_file = open(self.biomod_path, "w")
 
     def write(self, string):
-        self.file = open(self.path, 'a')
-        self.file.write(string)
-        self.file.close()
+        self.biomod_file.write(string)
 
-    def get_origin_file(self):
-        return self.originfile
-
-    def credits(self):
-        return self.data_origin.xpath(
-            '/OpenSimDocument/Model/credits')[0].text
-
-    def publications(self):
-        return self.data_origin.xpath(
-            '/OpenSimDocument/Model/publications')[0].text
-
-    def body_list(self):
-        _list = []
-        for body in self.data_origin.xpath(
-                '/OpenSimDocument/Model/BodySet/objects/Body'):
-            _list.append(body.get("name"))
-        return _list
-
-    def get_q_range(self, _is_dof, _joint_type, _joint):
-        range_q = new_text(go_to(go_to(go_to(self.root, _joint_type, 'name', _joint), 'Coordinate', 'name', _is_dof),
-                                 'range'))
-        range_value = []
-        for r in range_q.split(' '):
-            if r != '' and r != 'None':
-                range_value.append(float(r.replace(',', '.')))
-        return range_value
-
-    def update_q_range(self, _range_q, _Transform_function):
-        new_range = [-1, 1]
-        if _Transform_function[0] == 'LinearFunction':
-            new_range = [i_r * float(_Transform_function[1][0].replace(',', '.')) + float(_Transform_function[1][1].replace(',', '.')) for i_r in _range_q]
-        elif _Transform_function[0] == 'SimmSpline':
-            y_value = [float(i.replace(',', '.')) for i in ' '.join(_Transform_function[1][1].split(' ')).split()]
-            new_range = [min(y_value), max(y_value)]
-        elif _Transform_function[0] == 'MultiplierFunction':
-            # y_value = [float(i)*float(_Transform_function[1]) for i in ' '.join(_Transform_function[2][1].split(' ')).split()]
-            # new_range = [min(y_value), max(y_value)]
-            new_range = [-1, 1]
-
-        return new_range
-
-    def extract_information_dof(self, _list_transform, _type_transf, _joint_type, _joint, range_q):
-        dof_chain_loc = ''
-        _dof_total_transf = ''
-        list_trans_dof = ['x', 'y', 'z']
-        for i_transf in _list_transform:
-            if i_transf.find(_type_transf) == 0:
-                dof_information = '\n'
-
-                axis_str = new_text(go_to(
-                    go_to(
-                        go_to(self.root, _joint_type, 'name', _joint),
-                        'TransformAxis', 'name', i_transf)
-                    , 'axis'))
-
-                axis = [float(s.replace(',', '.')) for s in axis_str.split(' ')]
-
-                is_dof = new_text(go_to(
-                    go_to(
-                        go_to(self.root, _joint_type, 'name', _joint),
-                        'TransformAxis', 'name', i_transf),
-                    'coordinates'))
-
-                Transform_function = []
-
-                dof_information += f'//dof axis: {_joint} at {i_transf} on {axis_str}\n'
-
-                for i_att in go_to(go_to(self.root, _joint_type, 'name', _joint), 'TransformAxis',
-                                   'name', i_transf).getchildren():
-
-                    if i_att.tag == 'coordinates':
-                        dof_information += f'//coordinates that serve as the independent variables: {i_att.text}\n'
-
-                    if i_att.tag in ['LinearFunction', 'SimmSpline', 'MultiplierFunction']:
-                        Transform_function.append(i_att.tag)
-
-                        if i_att.tag == 'LinearFunction':
-                            linear_func = ' '.join(i_att[0].text.split(' ')).split()
-                            Transform_function.append(linear_func)
-                            if linear_func != ['1', '0']:
-                                constraints_in_model = True
-
-                        elif i_att.tag == 'SimmSpline':
-                            Transform_function.append([i_att[0].text, i_att[1].text])
-                            constraints_in_model = True
-
-                        elif i_att.tag == 'MultiplierFunction':
-                            for iparam in i_att.getchildren():
-                                if iparam.tag == 'scale':
-                                    scale = iparam.text
-                                if iparam.tag == 'function':
-                                    simmsp = [iparam[0][0].text, iparam[0][1].text]
-                            Transform_function.append(scale)
-                            Transform_function.append(simmsp)
-                            Transform_function = [1]
-                            constraints_in_model = True
-
-                dof_information += f'//Transform function: \n\t//Function type: {Transform_function[0]}\n' \
-                    f'\t//Parameters: {Transform_function[1:]}\n'
-
-                if not Transform_function:
-                    raise (f'Transform function for {_joint} at {axis_str} is unknown,'
-                           f' only LinearFunction,  SimmSpline and MultiplierFunction are implemented')
-
-                if is_dof in self.dof_of_joint(_joint, _joint_type):
-                    # _dof_total_transf += list_trans_dof[axis.index(1.0)]
-                    range_q_value = self.get_q_range(is_dof, _joint_type, _joint)
-                    range_q_value_updated = self.update_q_range(range_q_value, Transform_function)
-                    range_q.append(range_q_value_updated)
-                    if 1.0 in axis:
-                        _dof_total_transf += list_trans_dof[axis.index(1.0)]
-                    else:
-                        _dof_total_transf += list_trans_dof[axis.index(-1.0)]
-                dof_chain_loc += dof_information
-
-        return dof_chain_loc, range_q, _dof_total_transf
-
-        #        # Credits
-        #        self.write('\n// CREDITS')
-        #        _credits = print_credits()
-        #        self.write('\n'+_credits+'\n')
-        #
-        #         # Publications
-        #        self.write('\n// PUBLICATIONS\n')
-        #        _publications = print_publications()
-        #        self.write('\n'+_publications+'\n')
-
-    def main(self):
-        # list of joints with parent and child
-        list_joint = []
-        joint_type = ["WeldJoint", "CustomJoint"]
-
-        # Gravity
-        gravity_vector = new_text(go_to(self.root, 'gravity'))
-        self.write(f"\ngravity\t{gravity_vector}\n")
-
-        for joint in joint_type:
-            index_joints = index_go_to(self.root, joint)
-            if index_joints is not None:
-                list_index = list(index_joints)
-                tronc_list_index = list_index[:len(list_index) - 2]
-                tronc_index = ''.join(tronc_list_index)
-                # check these if/else rows
-                if joint == 'WeldJoint':
-                    i = 0
-                elif joint == "CustomJoint":
-                    i = int(list_index[len(list_index) - 2])
-                else:
-                    raise RuntimeError(f"Joint of type {joint} is not supported yet."
-                                       f" Only WeldJoint or CustomJoint are allowed.")
-                while True:
-                    try:
-                        new_joint = eval('self.root' + tronc_index + str(i) + ']').get('name')
-                        if new_text(go_to(self.root, joint, 'name', new_joint)) != 'None':
-                            _parent_joint = new_text(
-                                go_to(go_to(self.root, joint, 'name', new_joint), 'socket_parent_frame'))[:-7]
-                            _child_joint = new_text(
-                                go_to(go_to(self.root, joint, 'name', new_joint), 'socket_child_frame'))[:-7]
-                            list_joint.append([new_joint, _parent_joint, _child_joint, joint])
-                        i += 1
-                    except:
-                        break
-
-        # Segment definition
-        self.write('\n// SEGMENT DEFINITION\n')
-        # Division of body in segment depending of transformation
-        for body in self.body_list():
-            rotomatrix = OrthoMatrix([0, 0, 0])
-            self.write(f'\n// Information about {body} segment\n')
-            parent = self.parent_child(body, list_joint)
-            joint, joint_type = self.joint_body(body, list_joint)
-            physical_offset = self.get_frames_offsets(joint, joint_type)
-            list_transform = self.transform_of_joint(joint, joint_type)
-            # Add default values for list_transform
-            axis_offset = np.identity(3)
-            # segment data
-            self.printing_segment(
-                body, body + '_parent_offset', parent, physical_offset[0], rt_in_matrix=0, true_segment=False
-                                  )
-
-            parent = body + '_parent_offset'
-            # If there are no transformation (e.g. welded joint)
-            if list_transform[0] == []:
-                if list_transform[1] == []:
-                    pass
-
-            # For other joint (e.g. custom)
+    def write_headers(self, gravity, osim_path=None, print_warnings=True, print_info=True, warnings=None, infos=None):
+        self.write("version " + self.version + "\n")
+        if osim_path:
+            self.write("\n// File extracted from " + osim_path + "\n")
+        if print_info:
+            for info in infos.keys():
+                self.write(f"\n//{info} : {infos[info]}\n")
+        if print_warnings:
+            if warnings:
+                self.write(
+                    "\n// Biomod not include all Osim features as the optimisation "
+                    "is performed on a third part software.\n"
+                    "// The original file contained some of these features, "
+                    "corresponding warnings are shown in the end of the file.\n"
+                )
             else:
-                self.write("\n    // Segments to define transformation axis.\n")
-                body_trans = body + '_translation'
-                dof_total_trans = ''
-                j = 0
-                list_trans_dof = ['x', 'y', 'z']
-                transform_translation = []
-                is_dof = []
-                for translation in list_transform[0]:
-                    if translation.find('translation') == 0:
-                        axis_str = new_text(go_to(
-                            go_to(go_to(self.root, joint_type, 'name', joint), 'TransformAxis', 'name', translation),
-                            'axis'))
-                        axis = [float(s.replace(',', '.')) for s in axis_str.split(' ')]
-                        transform_translation.append(axis)
-                        current_dof = new_text(
-                            go_to(go_to(go_to(self.root, joint_type, 'name', joint), 'TransformAxis', 'name', translation),
-                                  'coordinates'))
-                        is_dof.append(current_dof)
-                        if current_dof in self.dof_of_joint(joint, joint_type):
-                            dof_total_trans += list_trans_dof[j]
-                        j += 1
+                self.write("\n// There are no warnings in this file.\n")
+        self.write("\n")
+        # Gravity
+        self.write(f"\ngravity\t{gravity}\n")
 
-                # Check if transformation basis is orthonormal
-                if is_ortho_basis(transform_translation):
-                    x = transform_translation[0]
-                    y = transform_translation[1]
-                    z = transform_translation[2]
-                    rotomatrix.set_rotation_matrix(np.append(x, np.append(y, z)).reshape(3, 3).T)
-                    # axis offset
-                    q_range = []
-                    for i in range(len(is_dof)):
-                        if is_dof[i] != 'None' and is_dof[i]:
-                            q_range.append(self.get_q_range(is_dof[i], joint_type, joint))
-                    self.printing_segment(body, body_trans, parent, rotomatrix, rt_in_matrix=1, true_segment=False,
-                                          _dof_total_trans=dof_total_trans,
-                                          _range_q=q_range
-                                          )
-                    axis_offset = axis_offset.dot(rotomatrix.get_rotation_matrix())
-                    parent = body_trans
-                else:
-                    raise RuntimeError("Translation vector no orthogonal non implemented yet")
+    def write_marker(self, marker):
+        self.write(f"\n\tmarker\t{marker.name}")
+        self.write(f"\n\t\tparent\t{marker.parent}")
+        self.write(f"\n\t\tposition\t{marker.position}")
+        self.write(f"\n\tendmarker\n")
 
-            if list_transform[1] != []:
-                list_rot_dof = ['x', 'y', 'z']
-                count_dof_rot = 0
-                transform_rotation = []
-                is_dof = []
-                default_value = []
-                for rotation in list_transform[1]:
-                    if rotation.find('rotation') == 0:
-                        axis_str = new_text(
-                            go_to(go_to(go_to(self.root, joint_type, 'name', joint), 'TransformAxis', 'name', rotation),
-                                  'axis'))
-                        axis = [float(s.replace(',', '.')) for s in axis_str.split(' ')]
-                        transform_rotation.append(axis)
-                        is_dof.append(new_text(
-                            go_to(go_to(go_to(self.root, joint_type, 'name', joint), 'TransformAxis', 'name', rotation),
-                                  'coordinates')))
+    def write_muscle_group(self, group):
+        self.write(f"\n// {group[0]} > {group[1]}\n")
+        self.write(f"musclegroup {group[0]}_to_{group[1]}\n")
+        self.write(f"\tOriginParent\t{group[0]}\n")
+        self.write(f"\tInsertionParent\t{group[1]}\n")
+        self.write(f"endmusclegroup\n")
 
-                        if is_dof[-1] and is_dof[-1] != 'None' and is_dof[-1]:
-                            tmp_value = new_text(
-                                go_to(
-                                    go_to(
-                                        go_to(self.root, joint_type, 'name', joint
-                                              ),
-                                        'Coordinate', 'name', is_dof[-1]
-                                    ), 'default_value'
-                                )
-                            )
-                            default_value.append(float(tmp_value.replace(',', '.')))
+    def write_muscle(self, muscle, type, state_type):
+        # print muscle data
+        self.write(f"\n\tmuscle\t{muscle.name}") if muscle.name else None
+        self.write(f"\n\t\ttype\t{type}") if type else None
+        self.write(f"\n\t\tstatetype\t{state_type}") if state_type else None
+        if muscle.group:
+            self.write(f"\n\t\tmusclegroup\t{muscle.group[0]}_to_{muscle.group[1]}")
+        self.write(f"\n\t\tOriginPosition\t{muscle.origin}") if muscle.origin else None
+        self.write(f"\n\t\tInsertionPosition\t{muscle.insersion}") if muscle.insersion else None
+        self.write(f"\n\t\toptimalLength\t{muscle.optimal_length}") if muscle.optimal_length else None
+        self.write(f"\n\t\tmaximalForce\t{muscle.maximal_force}") if muscle.maximal_force else None
+        self.write(f"\n\t\ttendonSlackLength\t{muscle.tendon_slack_length}") if muscle.tendon_slack_length else None
+        self.write(f"\n\t\tpennationAngle\t{muscle.pennation_angle}") if muscle.pennation_angle else None
+        self.write(f"\n\t\tPCSA\t{muscle.pcsa}") if muscle.pcsa else None
+        self.write(f"\n\t\tmaxVelocity\t{muscle.maximal_velocity}") if muscle.maximal_velocity else None
+        self.write(f"\n\tendmuscle\n")
 
-                        else:
-                            default_value.append(0)
+    def write_via_point(self, via_point):
+        self.write(f"\n\t\tviapoint\t{via_point.name}")
+        self.write(f"\n\t\t\tparent\t{via_point.body}")
+        self.write(f"\n\t\t\tmuscle\t{via_point.muscle}")
+        self.write(f"\n\t\t\tmusclegroup\t{via_point.muscle_group}")
+        self.write(f"\n\t\t\tposition\t{via_point.position}")
+        self.write("\n\t\tendviapoint")
+        self.write("\n")
 
-                if is_ortho_basis(transform_rotation):
-                    # if np.linalg.norm(default_value) != 0:
-                    #     raise RuntimeError("Default value for orthogonal basis not implemented yet.")
-                    x = transform_rotation[0]
-                    y = transform_rotation[1]
-                    z = transform_rotation[2]
-                    rotomatrix.set_rotation_matrix(np.append(x, np.append(y, z)).reshape(3, 3).T)
-                    body_name = body + '_rotation_transform'
-                    rot_dof = "xyz"
-                    q_range = []
-                    for i in range(len(is_dof)):
-                        if is_dof[i] != 'None' and is_dof[i]:
-                            q_range.append(self.get_q_range(is_dof[i], joint_type, joint))
-                    self.write("// Rotation transform was initially an orthogonal basis\n")
-                    self.printing_segment(body, body_name, parent, rotomatrix, rt_in_matrix=1,
-                                          _dof_total_rot=rot_dof, true_segment=False, _is_dof='True'
-                                          # , _range_q=q_range
-                                          )
-                    axis_offset = axis_offset.dot(rotomatrix.get_rotation_matrix())
-                    parent = body_name
+    def _write_generic_segment(self, name, parent, rt_in_matrix, frame_offset):
+        self.write(f"\t// Segment\n")
+        self.write(f"\tsegment {name}\n")
+        self.write(f"\t\tparent {parent} \n")
+        self.write(f"\t\tRTinMatrix\t{rt_in_matrix}\n")
+        if rt_in_matrix == 0:
+            for i in range(len(frame_offset)):
+                if isinstance(frame_offset[i], (list, np.ndarray)):
+                    if isinstance(frame_offset[i], np.ndarray):
+                        frame_offset[i] = frame_offset[i].tolist()
+                    frame_offset[i] = str(frame_offset[i])[1:-1].replace(",", "\t")
+            self.write(f"\t\tRT\t{frame_offset[1]}\txyz\t{frame_offset[0]}\n")
+        else:
+            [[r14], [r24], [r34]] = frame_offset.get_translation().tolist()
+            [r41, r42, r43, r44] = [0, 0, 0, 1]
 
-                else:
-                    axis_basis = []
-                    q_range = None
-                    for i in range(len(transform_rotation)):
-                        rotation = list_transform[1][i]
-                        if len(axis_basis) == 0:
-                            axis_basis.append(ortho_norm_basis(transform_rotation[i], i))
-                            initial_rotation = compute_matrix_rotation([default_value[i], 0, 0])
-                            if is_dof[i] != 'None' and is_dof[i]:
-                                q_range = self.get_q_range(is_dof[i], joint_type, joint)
+            r11, r12, r13 = frame_offset.get_rotation_matrix()[0, :]
+            r21, r22, r23 = frame_offset.get_rotation_matrix()[1, :]
+            r31, r32, r33 = frame_offset.get_rotation_matrix()[2, :]
+            self.write("\t\tRT\n")
+            self.write(
+                f"\t\t\t{r11}\t\t{r12}\t\t{r13}\t\t{r14}\n"
+                f"\t\t\t{r21}\t\t{r22}\t\t{r23}\t\t{r24}\n"
+                f"\t\t\t{r31}\t\t{r32}\t\t{r33}\t\t{r34}\n"
+                f"\t\t\t{r41}\t\t{r42}\t\t{r43}\t\t{r44}\n"
+            )
 
-                        elif len(axis_basis) == 1:
-                            axis_basis.append(inv(axis_basis[i - 1]).dot(ortho_norm_basis(transform_rotation[i], i)))
-                            initial_rotation = compute_matrix_rotation([0, default_value[i], 0])
-                            if is_dof[i] != 'None' and is_dof[i]:
-                                q_range = self.get_q_range(is_dof[i], joint_type, joint)
-                        else:
-                            axis_basis.append(inv(axis_basis[i - 1]).dot(inv(axis_basis[i - 2])).dot(ortho_norm_basis(transform_rotation[i], i)))
-                            initial_rotation = compute_matrix_rotation([0, 0, default_value[i]])
-                            if is_dof[i] != 'None' and is_dof[i]:
-                                q_range = self.get_q_range(is_dof[i], joint_type, joint)
+    def _write_true_segement(self, name, parent_name, frame_offset, com, mass, inertia, mesh_file=None, rt=0):
+        """
+        Segment where is applied inertia.
+        """
+        [i11, i22, i33, i12, i13, i23] = inertia
 
-                        if is_dof[i] in self.dof_of_joint(joint, joint_type):
-                            dof_rot = list_rot_dof[count_dof_rot]
-                            activate_dof = 'True'
-                            body_dof = body + '_' + is_dof[i]
-                        else:
-                            body_dof = body + '_' + rotation
-                            activate_dof = 'None'
-                            dof_rot = ''
+        self._write_generic_segment(name, parent_name, frame_offset=frame_offset, rt_in_matrix=rt)
+        self.write(f"\t\tmass\t{mass}\n")
+        self.write(
+            "\t\tinertia\n" f"\t\t\t{i11}\t{i12}\t{i13}\n" f"\t\t\t{i12}\t{i22}\t{i23}\n" f"\t\t\t{i13}\t{i23}\t{i33}\n"
+        )
+        self.write(f"\t\tcom\t{com}\n")
+        if mesh_file:
+            self.write(f"\t\tmeshfile\t{mesh_file}\n")
+        self.write(f"\tendsegment\n")
 
-                        rotomatrix.set_rotation_matrix(axis_basis[i].dot(initial_rotation))
-                        count_dof_rot += 1
-                        self.printing_segment(body, body_dof, parent, rotomatrix, rt_in_matrix=1,
-                                              _dof_total_rot=dof_rot, true_segment=False, _is_dof=activate_dof,
-                                              _range_q=q_range
-                                              )
-                        axis_offset = axis_offset.dot(rotomatrix.get_rotation_matrix())
-                        parent = body_dof
-
-                #### segment to cancel axis effects
-                self.write("\n    // Segment to cancel transformation bases effect.\n")
-                rotomatrix.set_rotation_matrix(inv(axis_offset))
-                self.printing_segment(body, body + '_reset_axis', parent, rotomatrix, rt_in_matrix=1, true_segment=False)
-                parent = body + '_reset_axis'
-
-            self.write("\n    //True segment where are applied inertial values.\n")
-            self.printing_segment(body, body, parent, physical_offset[1], rt_in_matrix=0, true_segment=True)
-            parent = body
-
-            # Markers
-            _list_markers = self.list_markers_body(body)
-            if _list_markers is not []:
-                self.write('\n    // Markers')
-                for marker in _list_markers:
-                    position = new_text(go_to(go_to(self.root, 'Marker', 'name', marker), 'location'))
-                    self.write('\n    marker    {}'.format(marker))
-                    self.write('\n        parent    {}'.format(parent))
-                    self.write('\n        position    {}'.format(position))
-                    self.write('\n    endmarker\n')
-            late_body = body
-
-            ###########    Coupled Coordinates constraints
-            # constraints_in_model = False
-            # constraints_output = '\n//COUPLED COORDINATES\n\n'
-            # cc_constraints = index_go_to(self.root, 'CoordinateCouplerConstraint')
-            # if cc_constraints is not None:
-            #
-            #     constraints_in_model = True
-            #     list_index = list(cc_constraints)
-            #     cc_index = ''.join(list_index[:len(list_index) - 2])
-            #     i = 0
-            #     while True:
-            #         try:
-            #             new_ccc = eval('self.root' + cc_index + str(i) + ']').get('name')
-            #             constraints_output += f'\n//name: {new_ccc}\n'
-            #             qx = new_text(go_to(go_to(self.root, 'CoordinateCouplerConstraint', 'name', new_ccc),
-            #                                 'independent_coordinate_names'))
-            #             qy = new_text(go_to(go_to(self.root, 'CoordinateCouplerConstraint', 'name', new_ccc),
-            #                                 'dependent_coordinate_name'))
-            #             type_coupling = go_to(go_to(self.root, 'CoordinateCouplerConstraint', 'name', new_ccc),
-            #                                   'coupled_coordinates_function')[0].tag
-            #             constraints_output += f'\t//independent q: {qx}\n' \
-            #                                   f'\t//dependent q: {qy}\n' \
-            #                                   f'\t//coupling type: {type_coupling}\n'
-            #             i += 1
-            #         except:
-            #             break
-
-        # Muscle definition
-        self.write('\n// MUSCLE DEFINIION\n')
-        muscle_type_osim = self.muscle_type
-
-        sort_muscle = []
-        muscle_ref_group = []
-        for muscle in self.muscle_list(muscle_type_osim):
-            viapoint = self.list_pathpoint_muscle(muscle, muscle_type_osim)
-            bodies_viapoint = []
-            for pathpoint in viapoint:
-                bodies_viapoint.append(self.get_body_pathpoint(pathpoint, muscle, muscle_type_osim))
-
-            # it is supposed that viapoints are organized in order
-            # from the parent body to the child body
-            body_start = bodies_viapoint[0]
-            body_end = bodies_viapoint[len(bodies_viapoint) - 1]
-            sort_muscle.append([body_start, body_end])
-            muscle_ref_group.append([muscle, body_start + '_to_' + body_end])
-
-        # selecting muscle group
-        group_muscle = []
-        for ext_muscle in sort_muscle:
-            if ext_muscle not in group_muscle:
-                group_muscle.append(ext_muscle)
-
-        for muscle_group in group_muscle:
-            self.write('\n// {} > {}\n'.format(muscle_group[0], muscle_group[1]))
-            self.write('musclegroup {}\n'.format(muscle_group[0] + '_to_' + muscle_group[1]))
-            self.write('    OriginParent        {}\n'.format(muscle_group[0]))
-            self.write('    InsertionParent        {}\n'.format(muscle_group[1]))
-            self.write('endmusclegroup\n')
-
+    def _write_virtual_segment(self, name, parent_name, frame_offset, q_range=None, rt=0, trans_dof="", rot_dof=""):
+        """
+        This function aims to add virtual segment to convert osim dof in biomod dof.
+        """
+        self._write_generic_segment(name, parent_name, frame_offset=frame_offset, rt_in_matrix=rt)
+        if trans_dof[:2] == "//":
+            self.write(f"\t\t//translations {trans_dof[2:]}\n") if trans_dof != "" else True
+        else:
+            self.write(f"\t\ttranslations {trans_dof}\n") if trans_dof != "" else True
+        if rot_dof[:2] == "//":
+            self.write(f"\t\t//rotations {rot_dof[2:]}\n") if rot_dof != "" else True
+        else:
+            self.write(f"\t\trotations {rot_dof}\n") if rot_dof != "" else True
+        if q_range:
+            if not isinstance(q_range, list):
+                q_range = [q_range]
             count = 0
-            for muscle in self.muscle_list(muscle_type_osim):
-                if muscle_ref_group[count][1] == muscle_group[0] + '_to_' + muscle_group[1]:
-                    m_ref = muscle_ref_group[count][1]
-                    muscle_type = 'degroote'
-                    state_type = "None"
+            for q in q_range:
+                if q[:2] == "//":
+                    count += 1
 
-                    list_pathpoint = self.list_pathpoint_muscle(muscle, muscle_type_osim)
-                    start_point = list_pathpoint.pop(0)
-                    end_point = list_pathpoint.pop()
-                    start_pos = self.get_pos(start_point, muscle, muscle_type_osim)
-                    insert_pos = self.get_pos(end_point, muscle, muscle_type_osim)
-                    opt_length = new_text(
-                        go_to(go_to(self.root, muscle_type_osim, 'name', muscle), 'optimal_fiber_length'))
-                    max_force = new_text(
-                        go_to(go_to(self.root, muscle_type_osim, 'name', muscle), 'max_isometric_force'))
-                    tendon_slack_length = new_text(
-                        go_to(go_to(self.root, muscle_type_osim, 'name', muscle), 'tendon_slack_length'))
-                    pennation_angle = new_text(
-                        go_to(go_to(self.root, muscle_type_osim, 'name', muscle), 'pennation_angle_at_optimal'))
-                    pcsa = new_text(go_to(go_to(self.root, muscle_type_osim, 'name', muscle), 'pcsa'))
-                    max_velocity = new_text(
-                        go_to(go_to(self.root, muscle_type_osim, 'name', muscle), 'max_contraction_velocity'))
+            for q, qrange in enumerate(q_range):
+                if rot_dof[:2] == "//":
+                    range_to_write = f"\t\t\t\t//{qrange[2:]}\n"
+                else:
+                    range_to_write = f"\t\t\t\t{qrange}\n"
+                if q == 0:
+                    if count == len(q_range):
+                        self.write(f"\t\t// ranges\n")
+                    else:
+                        self.write(f"\t\tranges\n")
+                self.write(range_to_write)
+        self.write(f"\tendsegment\n\n")
 
-                    # print muscle data
-                    self.write('\n    muscle    {}'.format(muscle))
-                    self.write('\n        type    {}'.format(muscle_type)) if muscle_type != 'None' else self.write('')
-                    self.write('\n        statetype    {}'.format(state_type)) if state_type != 'None' else self.write(
-                        '')
-                    self.write('\n        musclegroup    {}'.format(m_ref)) if m_ref != 'None' else self.write('')
-                    self.write(
-                        '\n        OriginPosition    {}'.format(start_pos)) if start_pos != 'None' else self.write('')
-                    self.write(
-                        '\n        InsertionPosition    {}'.format(insert_pos)) if insert_pos != 'None' else self.write(
-                        '')
-                    self.write(
-                        '\n        optimalLength    {}'.format(opt_length)) if opt_length != 'None' else self.write('')
-                    self.write('\n        maximalForce    {}'.format(max_force)) if max_force != 'None' else self.write(
-                        '')
-                    self.write('\n        tendonSlackLength    {}'.format(
-                        tendon_slack_length)) if tendon_slack_length != 'None' else self.write('')
-                    self.write('\n        pennationAngle    {}'.format(
-                        pennation_angle)) if pennation_angle != 'None' else self.write('')
-                    self.write('\n        PCSA    {}'.format(pcsa)) if pcsa != 'None' else self.write('')
-                    self.write(
-                        '\n        maxVelocity    {}'.format(max_velocity)) if max_velocity != 'None' else self.write(
-                        '')
-                    self.write('\n    endmuscle\n')
+    @staticmethod
+    def _get_transformation_parameters(spatial_transform):
+        translations = []
+        rotations = []
+        q_ranges_trans = []
+        q_ranges_rot = []
+        is_dof_trans = []
+        default_value_trans = []
+        default_value_rot = []
+        q_range = None
+        is_dof_rot = []
 
-                    # viapoint
-                    for viapoint in list_pathpoint:
-                        # viapoint data
-                        parent_viapoint = self.get_body_pathpoint(viapoint, muscle, muscle_type_osim)
-                        viapoint_pos = self.get_pos(viapoint, muscle, muscle_type_osim)
-                        # print viapoint data
-                        self.write('\n        viapoint    {}'.format(viapoint))
-                        self.write('\n            parent    {}'.format(
-                            parent_viapoint)) if parent_viapoint != 'None' else self.write('')
-                        self.write('\n            muscle    {}'.format(muscle))
-                        self.write('\n            musclegroup    {}'.format(m_ref)) if m_ref != 'None' else self.write(
-                            '')
-                        self.write('\n            position    {}'.format(
-                            viapoint_pos)) if viapoint_pos != 'None' else self.write('')
-                        self.write('\n        endviapoint')
-                    self.write('\n')
-                count += 1
+        for transform in spatial_transform:
+            axis = [float(i.replace(",", ".")) for i in transform.axis.split(" ")]
+            if transform.coordinate:
+                if transform.coordinate.range:
+                    q_range = transform.coordinate.range
+                    if not transform.coordinate.clamped:
+                        q_range = "// " + q_range
+                else:
+                    q_range = None
+                value = transform.coordinate.default_value
+                default_value = value if value else 0
+                is_dof_tmp = None if transform.coordinate.locked else transform.coordinate.name
+            else:
+                is_dof_tmp = None
+                default_value = 0
+            if transform.type == "translation":
+                translations.append(axis)
+                q_ranges_trans.append(q_range)
+                is_dof_trans.append(is_dof_tmp)
+                default_value_trans.append(default_value)
+            elif transform.type == "rotation":
+                rotations.append(axis)
+                q_ranges_rot.append(q_range)
+                is_dof_rot.append(is_dof_tmp)
+                default_value_rot.append(default_value)
+            else:
+                raise RuntimeError("Transform must be 'rotation' or 'translation'")
+        return (
+            translations,
+            q_ranges_trans,
+            is_dof_trans,
+            default_value_trans,
+            rotations,
+            q_ranges_rot,
+            is_dof_rot,
+            default_value_rot,
+        )
 
-        ###########    Additional data as comment about the model's constraints
-        # if constraints_in_model:
-        #     self.write(constraints_output)
-        #     self.write(dof_chain)
-        #     self.write_insert(3, '\n\nWARNING\n'
-        #                          '// The original model has some constrained DOF, thus it can not be '
-        #                          'directly used for kinematics or dynamics analysis.\n'
-        #                          '//If used in optimization, constraints should be added to the nlp to account'
-        #                          ' for the reduced number of DOF\n'
-        #                          '// Check end of file for possible constraints in the osim model\n\n')
-        self.file.close()
-        print(f"\nYour file {self.origin_file} has been converted into {self.path}.")
+    def _write_ortho_segment(
+        self, axis, axis_offset, name, parent, rt_in_matrix, frame_offset, q_range=None, trans_dof="", rot_dof=""
+    ):
+
+        x = axis[0]
+        y = axis[1]
+        z = axis[2]
+        frame_offset.set_rotation_matrix(np.append(x, np.append(y, z)).reshape(3, 3).T)
+        self._write_virtual_segment(
+            name,
+            parent,
+            frame_offset=frame_offset,
+            q_range=q_range,
+            rt=rt_in_matrix,
+            trans_dof=trans_dof,
+            rot_dof=rot_dof,
+        )
+        return axis_offset.dot(frame_offset.get_rotation_matrix())
+
+    def _write_non_ortho_rot_segment(
+        self,
+        axis,
+        axis_offset,
+        name,
+        parent,
+        rt_in_matrix,
+        frame_offset,
+        spatial_transform,
+        q_ranges=None,
+        default_values=None,
+    ):
+
+        default_values = [0, 0, 0] if not default_values else default_values
+        axis_basis = []
+        list_rot_dof = ["x", "y", "z"]
+        count_dof_rot = 0
+        q_range = None
+        for i, axe in enumerate(axis):
+            if len(axis_basis) == 0:
+                axis_basis.append(ortho_norm_basis(axe, i))
+                initial_rotation = compute_matrix_rotation([float(default_values[i]), 0, 0])
+            elif len(axis_basis) == 1:
+                axis_basis.append(inv(axis_basis[i - 1]).dot(ortho_norm_basis(axe, i)))
+                initial_rotation = compute_matrix_rotation([0, float(default_values[i]), 0])
+            else:
+                axis_basis.append(inv(axis_basis[i - 1]).dot(inv(axis_basis[i - 2])).dot(ortho_norm_basis(axe, i)))
+                initial_rotation = compute_matrix_rotation([0, 0, float(default_values[i])])
+
+            try:
+                coordinate = spatial_transform[i].coordinate
+                rot_dof = list_rot_dof[count_dof_rot] if not coordinate.locked else "//" + list_rot_dof[count_dof_rot]
+                body_dof = name + "_" + spatial_transform[i].coordinate.name
+                q_range = q_ranges[i]
+            except:
+                body_dof = name + f"_rotation_{i}"
+                rot_dof = ""
+
+            frame_offset.set_rotation_matrix(axis_basis[i].dot(initial_rotation))
+            count_dof_rot += 1
+            self._write_virtual_segment(
+                body_dof, parent, frame_offset=frame_offset, q_range=q_range, rt=rt_in_matrix, rot_dof=rot_dof
+            )
+            axis_offset = axis_offset.dot(frame_offset.get_rotation_matrix())
+            parent = body_dof
+        return axis_offset, parent
+
+    def write_dof(self, body, dof, mesh_dir=None):
+        rotomatrix = OrthoMatrix([0, 0, 0])
+        self.write(f"\n// Information about {body.name} segment\n")
+        parent = dof.parent_body.split("/")[-1]
+        axis_offset = np.identity(3)
+        # Parent offset
+        body_name = body.name + "_parent_offset"
+        offset = [dof.parent_offset_trans, dof.parent_offset_rot]
+        self._write_virtual_segment(body_name, parent, frame_offset=offset, rt=0)
+        parent = body_name
+        # Coordinates
+        (
+            translations,
+            q_ranges_trans,
+            is_dof_trans,
+            default_value_trans,
+            rotations,
+            q_ranges_rot,
+            is_dof_rot,
+            default_value_rot,
+        ) = self._get_transformation_parameters(dof.spatial_transform)
+
+        is_dof_trans, is_dof_rot = np.array(is_dof_trans), np.array(is_dof_rot)
+        dof_axis = np.array(["x", "y", "z"])
+        if len(translations) != 0 or len(rotations) != 0:
+            self.write("\t// Segments to define transformation axis.\n")
+        # Translations
+        if len(translations) != 0:
+            body_name = body.name + "_translation"
+            if is_ortho_basis(translations):
+                trans_axis = ""
+                for idx in np.where(is_dof_trans != None)[0]:
+                    trans_axis += dof_axis[idx]
+                axis_offset = self._write_ortho_segment(
+                    axis=translations,
+                    axis_offset=axis_offset,
+                    name=body_name,
+                    parent=parent,
+                    rt_in_matrix=1,
+                    frame_offset=rotomatrix,
+                    q_range=q_ranges_trans,
+                    trans_dof=trans_axis,
+                )
+                parent = body_name
+            else:
+                raise RuntimeError("Non orthogonal translation vector not implemented yet.")
+
+            # Rotations
+        if len(rotations) != 0:
+            if is_ortho_basis(rotations):
+                rot_axis = ""
+                for idx in np.where(is_dof_rot != None)[0]:
+                    rot_axis += dof_axis[idx]
+                body_name = body.name + "_rotation_transform"
+                self.write("// Rotation transform was initially an orthogonal basis\n")
+                axis_offset = self._write_ortho_segment(
+                    axis=rotations,
+                    axis_offset=axis_offset,
+                    name=body_name,
+                    parent=parent,
+                    rt_in_matrix=1,
+                    frame_offset=rotomatrix,
+                    q_range=q_ranges_rot,
+                    rot_dof=rot_axis,
+                )
+                parent = body_name
+            else:
+                body_name = body.name
+                axis_offset, parent = self._write_non_ortho_rot_segment(
+                    rotations,
+                    axis_offset,
+                    body_name,
+                    parent,
+                    frame_offset=rotomatrix,
+                    rt_in_matrix=1,
+                    spatial_transform=dof.spatial_transform,
+                    q_ranges=q_ranges_rot,
+                    default_values=default_value_rot,
+                )
+
+        # segment to cancel axis effects
+        self.write("\n    // Segment to cancel transformation bases effect.\n")
+        rotomatrix.set_rotation_matrix(inv(axis_offset))
+        body_name = body.name + "_reset_axis"
+        self._write_virtual_segment(
+            body_name,
+            parent,
+            frame_offset=rotomatrix,
+            rt=1,
+        )
+        parent = body_name
+
+        # True segment
+        self.write("\n    //True segment where are applied inertial values.\n")
+        frame_offset = [dof.child_offset_trans, dof.child_offset_rot]
+
+        if body.mesh:
+            mesh_dir = mesh_dir if mesh_dir else "Geometry"
+            mesh_file = None if body.mesh[:2] == "//" else f"{mesh_dir}/{body.mesh}"
+        else:
+            mesh_file = None
+        body_name = body.name
+        self._write_true_segement(
+            body_name,
+            parent,
+            frame_offset=frame_offset,
+            com=body.mass_center,
+            mass=body.mass,
+            inertia=body.inertia.split(" "),
+            mesh_file=mesh_file,
+            rt=0,
+        )
 
 
-if __name__ == '__main__':
-    model_path = os.path.dirname(os.getcwd()) + "/Models/"
-    converter = Converter(model_path + "wu_converted.bioMod", model_path + "Wu_Shoulder_Model_via_points.osim",
-                          muscle_type="Thelen2003Muscle")
-    converter.main()
+class Converter:
+    def __init__(
+        self,
+        biomod_path,
+        osim_path,
+        muscle_type=None,
+        state_type=None,
+        print_warnings=True,
+        print_general_informations=True,
+        ignore_clamped_dof_tag=False,
+        ignore_fixed_dof_tag=False,
+        mesh_dir=None,
+        ignore_muscle_applied_tag=False,
+    ):
+        self.biomod_path = biomod_path
+        self.osim_model = ReadOsim(osim_path)
+        self.osim_path = osim_path
+        self.writer = WriteBiomod(biomod_path)
+        self.print_warnings = print_warnings
+        self.print_general_informations = print_general_informations
+        self.forces = self.osim_model.get_force_set(ignore_muscle_applied_tag)
+        self.joints = self.osim_model.get_join_set(ignore_fixed_dof_tag, ignore_clamped_dof_tag)
+        self.bodies = self.osim_model.get_body_set()
+        self.markers = self.osim_model.get_marker_set()
+        self.infos, self.warnings = self.osim_model.infos, self.osim_model.get_warnings()
+        self.bodies = self.osim_model.add_markers_to_bodies(self.bodies, self.markers)
+        self.muscle_type = muscle_type if muscle_type else "hilldegroote"
+        self.state_type = state_type
+        self.mesh_dir = mesh_dir
+
+        if isinstance(self.muscle_type, MuscleType):
+            self.muscle_type = self.muscle_type.value
+        if isinstance(self.state_type, MuscleStateType):
+            self.state_type = self.state_type.value
+
+        if isinstance(muscle_type, str):
+            if self.muscle_type not in [e.value for e in MuscleType]:
+                raise RuntimeError(f"Muscle of type {self.muscle_type} is not a biorbd muscle.")
+
+        if isinstance(muscle_type, str):
+            if self.state_type not in [e.value for e in MuscleStateType]:
+                raise RuntimeError(f"Muscle state type {self.state_type} is not a biorbd muscle state type.")
+        if self.state_type == "default":
+            self.state_type = None
+
+    def convert_file(self):
+        # headers
+        self.writer.write_headers(
+            self.osim_model.gravity,
+            self.osim_path,
+            self.print_warnings,
+            self.print_general_informations,
+            self.warnings,
+            self.infos,
+        )
+
+        # segment
+        self.writer.write("\n// SEGMENT DEFINITION\n")
+        for dof in self.joints:
+            for body in self.bodies:
+                if body.socket_frame == dof.child_body:
+                    self.writer.write_dof(body, dof, self.mesh_dir)
+
+                    self.writer.write(f"\n\t// Markers\n")
+                    for marker in body.markers:
+                        self.writer.write_marker(marker)
+
+        muscle_groups = []
+        for muscle in self.forces:
+            group = muscle.group
+            if group not in muscle_groups:
+                muscle_groups.append(group)
+
+        self.writer.write("\n// MUSCLE DEFINIION\n")
+        muscles = self.forces
+        while len(muscles) != 0:
+            for muscle_group in muscle_groups:
+                idx = []
+                self.writer.write_muscle_group(muscle_group)
+                for m, muscle in enumerate(muscles):
+                    if muscle.group == muscle_group:
+                        if not muscle.applied:
+                            self.writer.write("\n/*")
+                        self.writer.write_muscle(muscle, self.muscle_type, self.state_type)
+                        for via_point in muscle.via_point:
+                            self.writer.write_via_point(via_point)
+                        if not muscle.applied:
+                            self.writer.write("*/\n")
+                        idx.append(m)
+                count = 0
+                for i in idx:
+                    muscles.pop(i - count)
+                    count += 1
+            muscle_groups.pop(0)
+
+        if self.print_warnings:
+            self.writer.write("\n/*-------------- WARNINGS---------------\n")
+            for warning in self.warnings:
+                self.writer.write("\n" + warning)
+            self.writer.write("*/\n")
+        self.writer.biomod_file.close()
+        print(f"\nYour file {self.osim_path} has been converted into {self.biomod_path}.")
+
+
+if __name__ == "__main__":
+
+    model = ReadOsim(model_path + "Wu_Shoulder_Model_via_points.osim")
