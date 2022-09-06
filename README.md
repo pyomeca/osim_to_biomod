@@ -21,9 +21,9 @@ There is a enum.py file which contains all the implemented model features. Featu
   - Component : None
 
 An example is provided to show how to convert a file. There are options to set the Biomod muscle type and muscle state type. Also the muscle applied, joint clamped and joint fixed options in opensim model can be ignored while set the option to True. 
-If muscle applied not ignored : the muscle which is not applied will be put in the biomod as a comment. 
-If joint clamped is not ignored: the joint range will be put in the biomod as a comment. Biorbd will assume range in [-pi, pi].
-If joint fixed is not ignored: the degree of freedom will be ignored in the biomod. 
+  - If muscle applied not ignored : the muscle which is not applied will be put in the biomod as a comment. 
+  - If joint clamped is not ignored: the joint range will be put in the biomod as a comment. Biorbd will assume range in [-pi, pi].
+  - If joint fixed is not ignored: the degree of freedom will be ignored in the biomod. 
 
 ## Test the model
 Is comming ...
