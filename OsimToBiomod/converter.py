@@ -310,10 +310,9 @@ class WriteBiomod:
             [[r14], [r24], [r34]] = frame_offset.get_translation().tolist()
             [r41, r42, r43, r44] = [0, 0, 0, 1]
 
-            r11, r12, r13 = frame_offset.get_rotation_matrix()[:, 0]
-            r21, r22, r23 = frame_offset.get_rotation_matrix()[:, 1]
-            r31, r32, r33 = frame_offset.get_rotation_matrix()[:, 2]
-
+            r11, r12, r13 = frame_offset.get_rotation_matrix()[0, :]
+            r21, r22, r23 = frame_offset.get_rotation_matrix()[1, :]
+            r31, r32, r33 = frame_offset.get_rotation_matrix()[2, :]
             self.write('\t\tRT\n')
             self.write(
                 f'\t\t\t{r11}\t\t{r12}\t\t{r13}\t\t{r14}\n'
@@ -495,7 +494,6 @@ class WriteBiomod:
         self.write(f'\n// Information about {body.name} segment\n')
         parent = dof.parent_body.split("/")[-1]
         axis_offset = np.identity(3)
-
         # Parent offset
         body_name = body.name + "_parent_offset"
         offset = [dof.parent_offset_trans, dof.parent_offset_rot]
@@ -515,7 +513,7 @@ class WriteBiomod:
             body_name = body.name + '_translation'
             if is_ortho_basis(translations):
                 trans_axis = ''
-                for idx in np.where(is_dof_trans is None)[0]:
+                for idx in np.where(is_dof_trans != None)[0]:
                     trans_axis += dof_axis[idx]
                 axis_offset = self._write_ortho_segment(axis=translations,
                                                         axis_offset=axis_offset,
@@ -534,7 +532,7 @@ class WriteBiomod:
         if len(rotations) != 0:
             if is_ortho_basis(rotations):
                 rot_axis = ''
-                for idx in np.where(is_dof_rot is None)[0]:
+                for idx in np.where(is_dof_rot != None)[0]:
                     rot_axis += dof_axis[idx]
                 body_name = body.name + '_rotation_transform'
                 self.write("// Rotation transform was initially an orthogonal basis\n")
@@ -551,15 +549,15 @@ class WriteBiomod:
             else:
                 body_name = body.name
                 axis_offset, parent = self._write_non_ortho_rot_segment(rotations,
-                                                                axis_offset,
-                                                                body_name,
-                                                                parent,
-                                                                frame_offset=rotomatrix,
-                                                                rt_in_matrix=1,
-                                                                spatial_transform=dof.spatial_transform,
-                                                                q_ranges=q_ranges_rot,
-                                                                default_values=default_value_rot,
-                                                                )
+                                                                        axis_offset,
+                                                                        body_name,
+                                                                        parent,
+                                                                        frame_offset=rotomatrix,
+                                                                        rt_in_matrix=1,
+                                                                        spatial_transform=dof.spatial_transform,
+                                                                        q_ranges=q_ranges_rot,
+                                                                        default_values=default_value_rot,
+                                                                        )
 
         # segment to cancel axis effects
         self.write("\n    // Segment to cancel transformation bases effect.\n")
@@ -672,12 +670,12 @@ class Converter:
                 for m, muscle in enumerate(muscles):
                     if muscle.group == muscle_group:
                         if not muscle.applied:
-                            self.writer.write("\n*/")
+                            self.writer.write("\n/*")
                         self.writer.write_muscle(muscle, self.muscle_type, self.state_type)
                         for via_point in muscle.via_point:
                             self.writer.write_via_point(via_point)
                         if not muscle.applied:
-                            self.writer.write("/*\n")
+                            self.writer.write("*/\n")
                         idx.append(m)
                 count = 0
                 for i in idx:
@@ -686,10 +684,10 @@ class Converter:
             muscle_groups.pop(0)
 
         if self.print_warnings:
-            self.writer.write("\n*/-------------- WARNINGS---------------\n")
+            self.writer.write("\n/*-------------- WARNINGS---------------\n")
             for warning in self.warnings:
-                self.writer.write(warning+'\n')
-            self.writer.write("/*\n")
+                self.writer.write('\n'+warning)
+            self.writer.write("*/\n")
         self.writer.biomod_file.close()
         print(f"\nYour file {self.osim_path} has been converted into {self.biomod_path}.")
 

@@ -31,8 +31,9 @@ class Body:
             mesh_list = element.find("attached_geometry").findall("Mesh")
             if mesh_list:
                 if len(mesh_list) > 1:
-                    self.mesh = "// Several mesh are not allowed in biomod for one segment."
-                elif len(mesh_list) == 0:
+                    self.mesh = f'{element.find("attached_geometry").find("Mesh").find("mesh_file").text}' \
+                                f' // Several mesh are not allowed in biomod for one segment so the first one was kept.'
+                elif len(mesh_list) == 1:
                     self.mesh = element.find("attached_geometry").find("Mesh").find("mesh_file").text
         return self
 
@@ -90,7 +91,7 @@ class Joint:
                 offset_rot = frame.find("orientation").text
                 offset_trans = frame.find("translation").text
                 offset_trans = [float(i) for i in offset_trans.split(" ")]
-                offset_rot = [float(i) for i in offset_rot.split(" ")]
+                offset_rot = [-float(i) for i in offset_rot.split(" ")]
                 self.child_offset_trans, self.child_offset_rot = self._convert_offset_child(offset_rot, offset_trans)
         return self
 
