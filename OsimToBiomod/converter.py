@@ -123,13 +123,13 @@ class ReadOsim:
                 elif "Force" in element.tag or "Actuator" in element.tag:
                     self.warnings.append(
                         f"Some {element.tag} were present in the original file force set."
-                        " Only muscles are supported so their will be ignored."
+                        " Only muscles are supported so they will be ignored."
                     )
             if len(wrap) != 0:
                 self.warnings.append(
                     f"Some wrapping objects were present on the muscles :{wrap}"
                     " in the original file force set.\n"
-                    " Only via point are supported in biomod so their will be ignored."
+                    " Only via point are supported in biomod so they will be ignored."
                 )
 
             return forces
