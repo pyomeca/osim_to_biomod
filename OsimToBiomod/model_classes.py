@@ -12,6 +12,8 @@ class Body:
         self.wrap = None
         self.socket_frame = None
         self.markers = []
+        self.mesh_color = None
+        self.mesh_scale_factor = None
 
     def get_body_attrib(self, element):
         self.name = (element.attrib["name"]).split("/")[-1]
@@ -37,6 +39,11 @@ class Body:
                     )
                 elif len(mesh_list) == 1:
                     self.mesh = element.find("attached_geometry").find("Mesh").find("mesh_file").text
+                mesh_scale_factor = element.find("attached_geometry").find("Mesh").find("scale_factors")
+                self.mesh_scale_factor = mesh_scale_factor.text if mesh_scale_factor is not None else None
+                if element.find("attached_geometry").find("Mesh").find("Appearance") is not None:
+                    mesh_color = element.find("attached_geometry").find("Mesh").find("Appearance").find("color")
+                    self.mesh_color = mesh_color.text if mesh_color is not None else None
         return self
 
 
