@@ -1,5 +1,5 @@
-from utils import *
-from enums import *
+from OsimToBiomod.utils import *
+from OsimToBiomod.enums import *
 
 
 class Body:

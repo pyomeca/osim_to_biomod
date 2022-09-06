@@ -1,9 +1,8 @@
 from lxml import etree
-from OsimToBiomod.utils import *
 import xml.etree.ElementTree as ET
 from numpy.linalg import inv
 import os
-from model_classes import *
+from OsimToBiomod.model_classes import *
 
 
 class ReadOsim:
