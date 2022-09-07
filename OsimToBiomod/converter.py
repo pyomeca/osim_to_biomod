@@ -133,7 +133,7 @@ class ReadOsim:
 
             return forces
 
-    def get_join_set(self, ignore_fixed_dof_tag=False, ignore_clamped_dof_tag=False):
+    def get_joint_set(self, ignore_fixed_dof_tag=False, ignore_clamped_dof_tag=False):
         joints = []
         if self._is_element_empty(self.forceset_elt):
             return None
@@ -421,7 +421,6 @@ class WriteBiomod:
         default_value_trans = []
         default_value_rot = []
         is_dof_rot = []
-
         for transform in spatial_transform:
             q_range = None
             axis = [float(i.replace(",", ".")) for i in transform.axis.split(" ")]
@@ -622,6 +621,9 @@ class WriteBiomod:
         # True segment
         frame_offset = [dof.child_offset_trans, dof.child_offset_rot]
         mesh_dir = mesh_dir if mesh_dir else "Geometry"
+        body.mesh = body.mesh if len(body.mesh) != 0 else [None]
+        body.mesh_color = body.mesh_color if len(body.mesh_color) != 0 else [None]
+        body.mesh_scale_factor = body.mesh_scale_factor if len(body.mesh_scale_factor) != 0 else [None]
         for i, virt_body in enumerate(body.virtual_body):
             if i > 0:
                 body_name = virt_body
@@ -671,7 +673,7 @@ class Converter:
         self.print_warnings = print_warnings
         self.print_general_informations = print_general_informations
         self.forces = self.osim_model.get_force_set(ignore_muscle_applied_tag)
-        self.joints = self.osim_model.get_join_set(ignore_fixed_dof_tag, ignore_clamped_dof_tag)
+        self.joints = self.osim_model.get_joint_set(ignore_fixed_dof_tag, ignore_clamped_dof_tag)
         self.bodies = self.osim_model.get_body_set()
         self.markers = self.osim_model.get_marker_set()
         self.infos, self.warnings = self.osim_model.infos, self.osim_model.get_warnings()
