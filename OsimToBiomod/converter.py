@@ -1,7 +1,6 @@
 from lxml import etree
 import xml.etree.ElementTree as ET
 from numpy.linalg import inv
-import os
 from OsimToBiomod.model_classes import *
 
 
@@ -315,12 +314,13 @@ class WriteBiomod:
         self.write("\n\t\tendviapoint")
         self.write("\n")
 
-    def _write_generic_segment(self, name, parent, rt_in_matrix, frame_offset):
+    def _write_generic_segment(self, name, parent, rt_in_matrix, frame_offset=None):
         self.write(f"\t// Segment\n")
         self.write(f"\tsegment {name}\n")
         self.write(f"\t\tparent {parent} \n")
         self.write(f"\t\tRTinMatrix\t{rt_in_matrix}\n")
         if rt_in_matrix == 0:
+            frame_offset = frame_offset if frame_offset else [[0, 0, 0], [0, 0, 0]]
             for i in range(len(frame_offset)):
                 if isinstance(frame_offset[i], (list, np.ndarray)):
                     if isinstance(frame_offset[i], np.ndarray):
@@ -328,6 +328,7 @@ class WriteBiomod:
                     frame_offset[i] = str(frame_offset[i])[1:-1].replace(",", "\t")
             self.write(f"\t\tRT\t{frame_offset[1]}\txyz\t{frame_offset[0]}\n")
         else:
+            frame_offset = frame_offset if frame_offset else OrthoMatrix([0, 0, 0])
             [[r14], [r24], [r34]] = frame_offset.get_translation().tolist()
             [r41, r42, r43, r44] = [0, 0, 0, 1]
 
@@ -363,7 +364,11 @@ class WriteBiomod:
                 self.write(f"\t\tmeshscale\t{mesh_scale}\n")
         self.write(f"\tendsegment\n")
 
-    def _write_virtual_segment(self, name, parent_name, frame_offset, q_range=None, rt=0, trans_dof="", rot_dof=""):
+    def _write_virtual_segment(self, name, parent_name, frame_offset, q_range=None, rt=0, trans_dof="", rot_dof="",
+                               mesh_file=None,
+                               mesh_color=None,
+                               mesh_scale=None
+                               ):
         """
         This function aims to add virtual segment to convert osim dof in biomod dof.
         """
@@ -376,25 +381,34 @@ class WriteBiomod:
             self.write(f"\t\t//rotations {rot_dof[2:]}\n") if rot_dof != "" else True
         else:
             self.write(f"\t\trotations {rot_dof}\n") if rot_dof != "" else True
+
         if q_range:
             if not isinstance(q_range, list):
                 q_range = [q_range]
-            count = 0
-            for q in q_range:
-                if q[:2] == "//":
-                    count += 1
+            if q_range.count(None) != 3:
+                count = 0
+                for q in q_range:
+                    if q_range and q[:2] == "//":
+                        count += 1
 
-            for q, qrange in enumerate(q_range):
-                if rot_dof[:2] == "//":
-                    range_to_write = f"\t\t\t\t//{qrange[2:]}\n"
-                else:
-                    range_to_write = f"\t\t\t\t{qrange}\n"
-                if q == 0:
-                    if count == len(q_range):
-                        self.write(f"\t\t// ranges\n")
+                for q, qrange in enumerate(q_range):
+                    if rot_dof[:2] == "//":
+                        range_to_write = f"\t\t\t\t//{qrange[2:]}\n"
                     else:
-                        self.write(f"\t\tranges\n")
-                self.write(range_to_write)
+                        range_to_write = f"\t\t\t\t{qrange}\n"
+                    if q == 0:
+                        if count == len(q_range):
+                            self.write(f"\t\t// ranges\n")
+                        else:
+                            self.write(f"\t\tranges\n")
+                    self.write(range_to_write)
+
+        if mesh_file:
+            self.write(f"\t\tmeshfile\t{mesh_file}\n")
+            if mesh_color:
+                self.write(f"\t\tmeshcolor\t{mesh_color}\n")
+            if mesh_scale:
+                self.write(f"\t\tmeshscale\t{mesh_scale}\n")
         self.write(f"\tendsegment\n\n")
 
     @staticmethod
@@ -406,10 +420,10 @@ class WriteBiomod:
         is_dof_trans = []
         default_value_trans = []
         default_value_rot = []
-        q_range = None
         is_dof_rot = []
 
         for transform in spatial_transform:
+            q_range = None
             axis = [float(i.replace(",", ".")) for i in transform.axis.split(" ")]
             if transform.coordinate:
                 if transform.coordinate.range:
@@ -606,25 +620,32 @@ class WriteBiomod:
         parent = body_name
 
         # True segment
-        self.write("\n    //True segment where are applied inertial values.\n")
         frame_offset = [dof.child_offset_trans, dof.child_offset_rot]
-
-        if body.mesh:
-            mesh_dir = mesh_dir if mesh_dir else "Geometry"
-            mesh_file = None if body.mesh[:2] == "//" else f"{mesh_dir}/{body.mesh}"
-        else:
-            mesh_file = None
-        body_name = body.name
+        mesh_dir = mesh_dir if mesh_dir else "Geometry"
+        for i, virt_body in enumerate(body.virtual_body):
+            if i > 0:
+                body_name = virt_body
+                self._write_virtual_segment(
+                    body_name,
+                    parent,
+                    frame_offset=frame_offset,
+                    mesh_file=f"{mesh_dir}/{body.mesh[i]}",
+                    mesh_color=body.mesh_color[i],
+                    mesh_scale=body.mesh_scale_factor[i],
+                    rt=0)
+                frame_offset = None
+                parent = body_name
+        self.write("\n    //True segment where are applied inertial values.\n")
         self._write_true_segement(
-            body_name,
+            body.name,
             parent,
             frame_offset=frame_offset,
             com=body.mass_center,
             mass=body.mass,
             inertia=body.inertia.split(" "),
-            mesh_file=mesh_file,
-            mesh_color=body.mesh_color,
-            mesh_scale=body.mesh_scale_factor,
+            mesh_file=f"{mesh_dir}/{body.mesh[0]}",
+            mesh_color=body.mesh_color[0],
+            mesh_scale=body.mesh_scale_factor[0],
             rt=0,
         )
 
