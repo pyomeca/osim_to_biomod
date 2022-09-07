@@ -638,6 +638,7 @@ class WriteBiomod:
                 frame_offset = None
                 parent = body_name
         self.write("\n    //True segment where are applied inertial values.\n")
+        mesh_file = f"{mesh_dir}/{body.mesh[0]}" if body.mesh[0] else None
         self._write_true_segement(
             body.name,
             parent,
@@ -645,7 +646,7 @@ class WriteBiomod:
             com=body.mass_center,
             mass=body.mass,
             inertia=body.inertia.split(" "),
-            mesh_file=f"{mesh_dir}/{body.mesh[0]}",
+            mesh_file=mesh_file,
             mesh_color=body.mesh_color[0],
             mesh_scale=body.mesh_scale_factor[0],
             rt=0,
