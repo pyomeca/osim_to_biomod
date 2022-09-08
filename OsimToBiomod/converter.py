@@ -145,7 +145,7 @@ class ReadOsim:
                         f"Some functions were present for the {joints[-1].name} joint."
                         " This feature is not implemented in biorbd yet so it will be ignored."
                     )
-            joints = self._reorder_joints(joints)
+            # joints = self._reorder_joints(joints)
             return joints
 
     @staticmethod
