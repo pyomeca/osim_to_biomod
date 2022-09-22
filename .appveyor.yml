@@ -36,7 +36,7 @@ install:
 # to run your custom scripts instead of automatic tests
 test_script:
   - black . -l120
-  - pytest -v --color=yes --cov-report term-missing --cov=bioptim tests
+  - pytest -v --color=yes --cov-report term-missing --cov=osim_to_bioptim tests
   - python setup.py install
   - cd
   - python -c "import osim_to_biomod"
