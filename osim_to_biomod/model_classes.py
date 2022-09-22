@@ -1,5 +1,7 @@
-from OsimToBiomod.utils import *
-from OsimToBiomod.enums import *
+import numpy as np
+
+from .utils import find, compute_matrix_rotation, rot2eul
+from .enums import JointType
 
 
 class Body:

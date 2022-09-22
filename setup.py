@@ -1,20 +1,16 @@
 from setuptools import setup
 
 setup(
-    name="OsimToBiomod",
-    description="Convert opensim model format into biomod model format.",
-    version="0.1",
+    name="osim_to_biomod",
+    description="Convert opensim model file (.osim) to biorbd model file (.bioMod)",
+    version="0.2",
     author="Aceglia",
     author_email="amedeo.ceglia@umontreal.ca",
-    url="https://github.com/aceglia/OsimToBiomod",
+    url="https://github.com/pyomeca/osim_to_biomod",
     license="Apache 2.0",
-    packages=["OsimToBiomod"],
-    keywords="OsimToBiomod",
+    packages=["osim_to_biomod"],
+    keywords="osim_to_biomod",
     classifiers=[
-        "Programming Language :: Python :: 3.6",
-        "Programming Language :: Python :: 3.7",
-        "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
     ],
 )
