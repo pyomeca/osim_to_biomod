@@ -5,7 +5,7 @@ import numpy as np
 
 from .model_classes import Body, Marker, Muscle, Joint
 from .enums import MuscleType, MuscleStateType
-from. utils import is_ortho_basis, ortho_norm_basis, compute_matrix_rotation, OrthoMatrix
+from .utils import is_ortho_basis, ortho_norm_basis, compute_matrix_rotation, OrthoMatrix
 
 
 class ReadOsim:
@@ -342,8 +342,19 @@ class WriteBiomod:
                 f"\t\t\t{r41}\t\t{r42}\t\t{r43}\t\t{r44}\n"
             )
 
-    def write_true_segement(self, name, parent_name, frame_offset, com, mass, inertia, mesh_file=None,
-                            mesh_scale=None, mesh_color=None, rt=0):
+    def write_true_segement(
+        self,
+        name,
+        parent_name,
+        frame_offset,
+        com,
+        mass,
+        inertia,
+        mesh_file=None,
+        mesh_scale=None,
+        mesh_color=None,
+        rt=0,
+    ):
         """
         Segment where is applied inertia.
         """
@@ -363,11 +374,19 @@ class WriteBiomod:
                 self.write(f"\t\tmeshscale\t{mesh_scale}\n")
         self.write(f"\tendsegment\n")
 
-    def write_virtual_segment(self, name, parent_name, frame_offset, q_range=None, rt=0, trans_dof="", rot_dof="",
-                              mesh_file=None,
-                              mesh_color=None,
-                              mesh_scale=None
-                              ):
+    def write_virtual_segment(
+        self,
+        name,
+        parent_name,
+        frame_offset,
+        q_range=None,
+        rt=0,
+        trans_dof="",
+        rot_dof="",
+        mesh_file=None,
+        mesh_color=None,
+        mesh_scale=None,
+    ):
         """
         This function aims to add virtual segment to convert osim dof in biomod dof.
         """
@@ -636,7 +655,8 @@ class WriteBiomod:
                     mesh_file=f"{mesh_dir}/{body.mesh[i]}",
                     mesh_color=body.mesh_color[i],
                     mesh_scale=body.mesh_scale_factor[i],
-                    rt=0)
+                    rt=0,
+                )
                 frame_offset = None
                 parent = body_name
         self.write("\n    //True segment where are applied inertial values.\n")

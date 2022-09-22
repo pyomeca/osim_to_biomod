@@ -1,5 +1,5 @@
 # create a dev conda environment with: `make create_env` or `conda env create -f environment.yml`
-name: bioptim
+name: biorbd
 channels:
 - conda-forge
 - default
@@ -7,3 +7,4 @@ dependencies:
 - python >=3.10
 - lxml
 - numpy
+- vtk
