@@ -29,10 +29,10 @@ def compute_matrix_rotation(_rot_value):
     return rot_matrix
 
 
-def rot2eul(R):
-    beta = -np.arcsin(R[2, 0])
-    alpha = np.arctan2(R[2, 1], R[2, 2])
-    gamma = np.arctan2(R[1, 0], R[0, 0])
+def rot2eul(rot):
+    beta = -np.arcsin(rot[2, 0])
+    alpha = np.arctan2(rot[2, 1], rot[2, 2])
+    gamma = np.arctan2(rot[1, 0], rot[0, 0])
     return np.array((alpha, beta, gamma))
 
 
@@ -101,7 +101,7 @@ def is_ortho_basis(basis):
 
 
 class OrthoMatrix:
-    def __init__(self, translation=[0, 0, 0], rotation_1=[0, 0, 0], rotation_2=[0, 0, 0], rotation_3=[0, 0, 0]):
+    def __init__(self, translation=(0, 0, 0), rotation_1=(0, 0, 0), rotation_2=(0, 0, 0), rotation_3=(0, 0, 0)):
         self.trans = np.transpose(np.array([translation]))
         self.axe_1 = rotation_1  # axis of rotation for theta_1
         self.axe_2 = rotation_2  # axis of rotation for theta_2

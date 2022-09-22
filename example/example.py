@@ -1,6 +1,4 @@
-from OsimToBiomod.converter import Converter
-import os
-from OsimToBiomod.enums import *
+from osim_to_biomod import Converter, MuscleType, MuscleStateType
 
 if __name__ == "__main__":
     model_path = "Models/"

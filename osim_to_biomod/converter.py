@@ -1,22 +1,25 @@
+from xml.etree import ElementTree
+
 from lxml import etree
-import xml.etree.ElementTree as ET
-from numpy.linalg import inv
-from OsimToBiomod.model_classes import *
+import numpy as np
+
+from .model_classes import Body, Marker, Muscle, Joint
+from .enums import MuscleType, MuscleStateType
+from. utils import is_ortho_basis, ortho_norm_basis, compute_matrix_rotation, OrthoMatrix
 
 
 class ReadOsim:
     def __init__(self, osim_path, print_warnings: bool = True):
         self.osim_path = osim_path
         self.osim_model = etree.parse(self.osim_path)
-        self.model = ET.parse(self.osim_path)
+        self.model = ElementTree.parse(self.osim_path)
         self.root = self.model.getroot()[0]
         self.print_warnings = print_warnings
         if self.get_file_version() < 40000:
             raise RuntimeError(
-                "Osim file version must be superior or equal than '40000' and you have"
-                f" : {self.get_file_version()}."
+                f".osim file version must be superior or equal to '40000' and you have: {self.get_file_version()}."
                 "To convert the osim file to the newest version please open and save your file in"
-                "Opensim 4.0 or latter."
+                "Opensim 4.0 or later."
             )
 
         self.gravity = "0 0 9.81"
@@ -78,7 +81,7 @@ class ReadOsim:
         self.geometry_set = []
         self.warnings = []
         self.infos = {}
-        self._get_infos()
+        self.get_infos()
 
     @staticmethod
     def _is_element_empty(element):
@@ -121,14 +124,13 @@ class ReadOsim:
                         wrap.append(forces[-1].name)
                 elif "Force" in element.tag or "Actuator" in element.tag:
                     self.warnings.append(
-                        f"Some {element.tag} were present in the original file force set."
-                        " Only muscles are supported so they will be ignored."
+                        f"Some {element.tag} were present in the original file force set. "
+                        "Only muscles are supported so they will be ignored."
                     )
             if len(wrap) != 0:
                 self.warnings.append(
-                    f"Some wrapping objects were present on the muscles :{wrap}"
-                    " in the original file force set.\n"
-                    " Only via point are supported in biomod so they will be ignored."
+                    f"Some wrapping objects were present on the muscles :{wrap} in the original file force set.\n"
+                    "Only via point are supported in biomod so they will be ignored."
                 )
 
             return forces
@@ -142,8 +144,8 @@ class ReadOsim:
                 joints.append(Joint().get_joint_attrib(element, ignore_fixed_dof_tag, ignore_clamped_dof_tag))
                 if joints[-1].function:
                     self.warnings.append(
-                        f"Some functions were present for the {joints[-1].name} joint."
-                        " This feature is not implemented in biorbd yet so it will be ignored."
+                        f"Some functions were present for the {joints[-1].name} joint. "
+                        "This feature is not implemented in biorbd yet so it will be ignored."
                     )
             # joints = self._reorder_joints(joints)
             return joints
@@ -151,6 +153,7 @@ class ReadOsim:
     @staticmethod
     def add_markers_to_bodies(bodies, markers):
         for b, body in enumerate(bodies):
+            # TODO: Do not add a try here. If the you can know in advance the error, test it with a if. If you actually need a try, catch a specific error (`except ERRORNAME:` instead of `except:`)
             try:
                 for marker in markers:
                     if body.socket_frame == marker.parent:
@@ -161,6 +164,7 @@ class ReadOsim:
 
     @staticmethod
     def _reorder_joints(joints: list):
+        # TODO: This function is not actually called. Is it necessary?
         ordered_joints = [joints[0]]
         joints.pop(0)
         while len(joints) != 0:
@@ -184,57 +188,57 @@ class ReadOsim:
             self.controller_set = None
         else:
             self.warnings.append(
-                "Some controllers were present in the original file."
-                " This feature is not implemented in biorbd yet so it will be ignored."
+                "Some controllers were present in the original file. "
+                "This feature is not implemented in biorbd yet so it will be ignored."
             )
 
-    def _get_constraint_set(self):
+    def get_constraint_set(self):
         if self._is_element_empty(self.constraintset_elt):
             self.constraintset_elt = None
         else:
             self.warnings.append(
-                "Some constraints were present in the original file."
-                " This feature is not implemented in biorbd yet so it will be ignored."
+                "Some constraints were present in the original file. "
+                "This feature is not implemented in biorbd yet so it will be ignored."
             )
 
-    def _get_contact_geometry_set(self):
+    def get_contact_geometry_set(self):
         if self._is_element_empty(self.contact_geometryset_elt):
             self.contact_geometryset_elt = None
         else:
             self.warnings.append(
-                "Some contact geometry were present in the original file."
-                " This feature is not implemented in biorbd yet so it will be ignored."
+                "Some contact geometry were present in the original file. "
+                "This feature is not implemented in biorbd yet so it will be ignored."
             )
 
-    def _get_component_set(self):
+    def get_component_set(self):
         if self._is_element_empty(self.componentset_elt):
             self.componentset_elt = None
         else:
             self.warnings.append(
-                "Some additional components were present in the original file."
-                " This feature is not implemented in biorbd yet so it will be ignored."
+                "Some additional components were present in the original file. "
+                "This feature is not implemented in biorbd yet so it will be ignored."
             )
 
-    def _get_probe_set(self):
+    def get_probe_set(self):
         if self._is_element_empty(self.probeset_elt):
             self.probeset_elt = None
         else:
             self.warnings.append(
-                "Some probes were present in the original file."
-                " This feature is not implemented in biorbd yet so it will be ignored."
+                "Some probes were present in the original file. "
+                "This feature is not implemented in biorbd yet so it will be ignored."
             )
 
     def get_warnings(self):
-        self._get_probe_set()
-        self._get_component_set()
-        self._get_contact_geometry_set()
-        self._get_constraint_set()
+        self.get_probe_set()
+        self.get_component_set()
+        self.get_contact_geometry_set()
+        self.get_constraint_set()
         return self.warnings
 
     def get_file_version(self):
         return int(self.model.getroot().attrib["Version"])
 
-    def _get_infos(self):
+    def get_infos(self):
         if self.publications:
             self.infos["Publication"] = self.publications
         if self.credit:
@@ -261,18 +265,13 @@ class WriteBiomod:
         if print_info:
             for info in infos.keys():
                 self.write(f"\n//{info} : {infos[info]}\n")
-        if print_warnings:
-            if warnings:
-                self.write(
-                    "\n// Biomod not include all Osim features as the optimisation "
-                    "is performed on a third part software.\n"
-                    "// The original file contained some of these features, "
-                    "corresponding warnings are shown in the end of the file.\n"
-                )
-            else:
-                self.write("\n// There are no warnings in this file.\n")
+        if print_warnings and warnings:
+            self.write(
+                "\n// Biomod not include all Osim features as the optimisation is performed on a third part software.\n"
+                "// The original file contained some of these features, corresponding warnings are shown "
+                "in the end of the file.\n"
+            )
         self.write("\n")
-        # Gravity
         self.write(f"\ngravity\t{gravity}\n")
 
     def write_marker(self, marker):
@@ -288,10 +287,10 @@ class WriteBiomod:
         self.write(f"\tInsertionParent\t{group[1]}\n")
         self.write(f"endmusclegroup\n")
 
-    def write_muscle(self, muscle, type, state_type):
+    def write_muscle(self, muscle, muscle_type, state_type):
         # print muscle data
         self.write(f"\n\tmuscle\t{muscle.name}") if muscle.name else None
-        self.write(f"\n\t\ttype\t{type}") if type else None
+        self.write(f"\n\t\ttype\t{muscle_type}") if muscle_type else None
         self.write(f"\n\t\tstatetype\t{state_type}") if state_type else None
         if muscle.group:
             self.write(f"\n\t\tmusclegroup\t{muscle.group[0]}_to_{muscle.group[1]}")
@@ -314,7 +313,7 @@ class WriteBiomod:
         self.write("\n\t\tendviapoint")
         self.write("\n")
 
-    def _write_generic_segment(self, name, parent, rt_in_matrix, frame_offset=None):
+    def write_generic_segment(self, name, parent, rt_in_matrix, frame_offset=None):
         self.write(f"\t// Segment\n")
         self.write(f"\tsegment {name}\n")
         self.write(f"\t\tparent {parent} \n")
@@ -343,14 +342,14 @@ class WriteBiomod:
                 f"\t\t\t{r41}\t\t{r42}\t\t{r43}\t\t{r44}\n"
             )
 
-    def _write_true_segement(self, name, parent_name, frame_offset, com, mass, inertia, mesh_file=None,
-                             mesh_scale=None, mesh_color=None, rt=0):
+    def write_true_segement(self, name, parent_name, frame_offset, com, mass, inertia, mesh_file=None,
+                            mesh_scale=None, mesh_color=None, rt=0):
         """
         Segment where is applied inertia.
         """
         [i11, i22, i33, i12, i13, i23] = inertia
 
-        self._write_generic_segment(name, parent_name, frame_offset=frame_offset, rt_in_matrix=rt)
+        self.write_generic_segment(name, parent_name, frame_offset=frame_offset, rt_in_matrix=rt)
         self.write(f"\t\tmass\t{mass}\n")
         self.write(
             "\t\tinertia\n" f"\t\t\t{i11}\t{i12}\t{i13}\n" f"\t\t\t{i12}\t{i22}\t{i23}\n" f"\t\t\t{i13}\t{i23}\t{i33}\n"
@@ -364,15 +363,15 @@ class WriteBiomod:
                 self.write(f"\t\tmeshscale\t{mesh_scale}\n")
         self.write(f"\tendsegment\n")
 
-    def _write_virtual_segment(self, name, parent_name, frame_offset, q_range=None, rt=0, trans_dof="", rot_dof="",
-                               mesh_file=None,
-                               mesh_color=None,
-                               mesh_scale=None
-                               ):
+    def write_virtual_segment(self, name, parent_name, frame_offset, q_range=None, rt=0, trans_dof="", rot_dof="",
+                              mesh_file=None,
+                              mesh_color=None,
+                              mesh_scale=None
+                              ):
         """
         This function aims to add virtual segment to convert osim dof in biomod dof.
         """
-        self._write_generic_segment(name, parent_name, frame_offset=frame_offset, rt_in_matrix=rt)
+        self.write_generic_segment(name, parent_name, frame_offset=frame_offset, rt_in_matrix=rt)
         if trans_dof[:2] == "//":
             self.write(f"\t\t//translations {trans_dof[2:]}\n") if trans_dof != "" else True
         else:
@@ -460,7 +459,7 @@ class WriteBiomod:
             default_value_rot,
         )
 
-    def _write_ortho_segment(
+    def write_ortho_segment(
         self, axis, axis_offset, name, parent, rt_in_matrix, frame_offset, q_range=None, trans_dof="", rot_dof=""
     ):
 
@@ -468,7 +467,7 @@ class WriteBiomod:
         y = axis[1]
         z = axis[2]
         frame_offset.set_rotation_matrix(np.append(x, np.append(y, z)).reshape(3, 3).T)
-        self._write_virtual_segment(
+        self.write_virtual_segment(
             name,
             parent,
             frame_offset=frame_offset,
@@ -479,7 +478,7 @@ class WriteBiomod:
         )
         return axis_offset.dot(frame_offset.get_rotation_matrix())
 
-    def _write_non_ortho_rot_segment(
+    def write_non_ortho_rot_segment(
         self,
         axis,
         axis_offset,
@@ -502,12 +501,15 @@ class WriteBiomod:
                 axis_basis.append(ortho_norm_basis(axe, i))
                 initial_rotation = compute_matrix_rotation([float(default_values[i]), 0, 0])
             elif len(axis_basis) == 1:
-                axis_basis.append(inv(axis_basis[i - 1]).dot(ortho_norm_basis(axe, i)))
+                axis_basis.append(np.linalg.inv(axis_basis[i - 1]).dot(ortho_norm_basis(axe, i)))
                 initial_rotation = compute_matrix_rotation([0, float(default_values[i]), 0])
             else:
-                axis_basis.append(inv(axis_basis[i - 1]).dot(inv(axis_basis[i - 2])).dot(ortho_norm_basis(axe, i)))
+                axis_basis.append(
+                    np.linalg.inv(axis_basis[i - 1]).dot(np.linalg.inv(axis_basis[i - 2])).dot(ortho_norm_basis(axe, i))
+                )
                 initial_rotation = compute_matrix_rotation([0, 0, float(default_values[i])])
 
+            # TODO: Do not add a try here. If the you can know in advance the error, test it with a if. If you actually need a try, catch a specific error (`except ERRORNAME:` instead of `except:`)
             try:
                 coordinate = spatial_transform[i].coordinate
                 rot_dof = list_rot_dof[count_dof_rot] if not coordinate.locked else "//" + list_rot_dof[count_dof_rot]
@@ -519,7 +521,7 @@ class WriteBiomod:
 
             frame_offset.set_rotation_matrix(axis_basis[i].dot(initial_rotation))
             count_dof_rot += 1
-            self._write_virtual_segment(
+            self.write_virtual_segment(
                 body_dof, parent, frame_offset=frame_offset, q_range=q_range, rt=rt_in_matrix, rot_dof=rot_dof
             )
             axis_offset = axis_offset.dot(frame_offset.get_rotation_matrix())
@@ -534,7 +536,7 @@ class WriteBiomod:
         # Parent offset
         body_name = body.name + "_parent_offset"
         offset = [dof.parent_offset_trans, dof.parent_offset_rot]
-        self._write_virtual_segment(body_name, parent, frame_offset=offset, rt=0)
+        self.write_virtual_segment(body_name, parent, frame_offset=offset, rt=0)
         parent = body_name
         # Coordinates
         (
@@ -559,7 +561,7 @@ class WriteBiomod:
                 trans_axis = ""
                 for idx in np.where(is_dof_trans != None)[0]:
                     trans_axis += dof_axis[idx]
-                axis_offset = self._write_ortho_segment(
+                axis_offset = self.write_ortho_segment(
                     axis=translations,
                     axis_offset=axis_offset,
                     name=body_name,
@@ -581,7 +583,7 @@ class WriteBiomod:
                     rot_axis += dof_axis[idx]
                 body_name = body.name + "_rotation_transform"
                 self.write("// Rotation transform was initially an orthogonal basis\n")
-                axis_offset = self._write_ortho_segment(
+                axis_offset = self.write_ortho_segment(
                     axis=rotations,
                     axis_offset=axis_offset,
                     name=body_name,
@@ -594,7 +596,7 @@ class WriteBiomod:
                 parent = body_name
             else:
                 body_name = body.name
-                axis_offset, parent = self._write_non_ortho_rot_segment(
+                axis_offset, parent = self.write_non_ortho_rot_segment(
                     rotations,
                     axis_offset,
                     body_name,
@@ -608,9 +610,9 @@ class WriteBiomod:
 
         # segment to cancel axis effects
         self.write("\n    // Segment to cancel transformation bases effect.\n")
-        rotomatrix.set_rotation_matrix(inv(axis_offset))
+        rotomatrix.set_rotation_matrix(np.linalg.inv(axis_offset))
         body_name = body.name + "_reset_axis"
-        self._write_virtual_segment(
+        self.write_virtual_segment(
             body_name,
             parent,
             frame_offset=rotomatrix,
@@ -627,7 +629,7 @@ class WriteBiomod:
         for i, virt_body in enumerate(body.virtual_body):
             if i > 0:
                 body_name = virt_body
-                self._write_virtual_segment(
+                self.write_virtual_segment(
                     body_name,
                     parent,
                     frame_offset=frame_offset,
@@ -639,7 +641,7 @@ class WriteBiomod:
                 parent = body_name
         self.write("\n    //True segment where are applied inertial values.\n")
         mesh_file = f"{mesh_dir}/{body.mesh[0]}" if body.mesh[0] else None
-        self._write_true_segement(
+        self.write_true_segement(
             body.name,
             parent,
             frame_offset=frame_offset,
