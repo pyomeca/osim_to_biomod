@@ -43,7 +43,9 @@ class ModelEvaluation:
     def from_states(self, states, plot: bool = True) -> list:
         pass
 
-    def _plot_markers(self, default_nb_line: int, osim_marker_idx: list, osim_markers: np.ndarray, biorbd_markers: np.ndarray):
+    def _plot_markers(
+        self, default_nb_line: int, osim_marker_idx: list, osim_markers: np.ndarray, biorbd_markers: np.ndarray
+    ):
         nb_markers = osim_markers.shape[1]
         var = ceil(nb_markers / default_nb_line)
         nb_line = var if var < default_nb_line else default_nb_line
@@ -81,7 +83,14 @@ class ModelEvaluation:
                 plt.legend(labels=["osim states (handle default value)", "states"])
         plt.show()
 
-    def _plot_moment_arm(self, default_nb_line: int, osim_muscle_idx: list, ordered_osim_idx: list, osim_moment_arm: np.ndarray, biorbd_moment_arm: np.ndarray):
+    def _plot_moment_arm(
+        self,
+        default_nb_line: int,
+        osim_muscle_idx: list,
+        ordered_osim_idx: list,
+        osim_moment_arm: np.ndarray,
+        biorbd_moment_arm: np.ndarray,
+    ):
         nb_muscles = len(osim_muscle_idx)
         var = ceil(nb_muscles / default_nb_line)
         nb_line = var if var < default_nb_line else default_nb_line
@@ -102,7 +111,9 @@ class ModelEvaluation:
                 if m == 0:
                     plt.legend(labels=list_labels)
 
-    def _update_osim_model(self, my_state: osim.Model.initializeState, states: np.ndarray, ordered_idx: list) -> np.array:
+    def _update_osim_model(
+        self, my_state: osim.Model.initializeState, states: np.ndarray, ordered_idx: list
+    ) -> np.array:
         """
         Update the osim model to match the biomod model
 
@@ -123,9 +134,7 @@ class ModelEvaluation:
         osim_state = states.copy()
         for b in range(states.shape[0]):
             if self.osim_model.getCoordinateSet().get(ordered_idx[b]).getDefaultValue() != 0:
-                osim_state[b] = (
-                        states[b] + self.osim_model.getCoordinateSet().get(ordered_idx[b]).getDefaultValue()
-                )
+                osim_state[b] = states[b] + self.osim_model.getCoordinateSet().get(ordered_idx[b]).getDefaultValue()
             self.osim_model.getCoordinateSet().get(ordered_idx[b]).setValue(my_state, osim_state[b])
         return osim_state
 
@@ -255,8 +264,7 @@ class MomentArmTest(ModelEvaluation):
         ordered_osim_idx = self._reorder_osim_coordinate()
         osim_state = np.copy(states)
         osim_muscle_names = [
-            self.osim_model.getMuscles().get(m).toString()
-            for m in range(self.osim_model.getMuscles().getSize())
+            self.osim_model.getMuscles().get(m).toString() for m in range(self.osim_model.getMuscles().getSize())
         ]
         my_state = self.osim_model.initSystem()
         for i in range(nb_frame):
@@ -268,13 +276,17 @@ class MomentArmTest(ModelEvaluation):
                 osim_muscle_idx.append(osim_idx)
                 for d in range(self.biomod_model.nbDof()):
                     osim_moment_arm[d, m, i] = (
-                        -self.osim_model.getMuscles().get(osim_idx).computeMomentArm(my_state, self.osim_model.getCoordinateSet().get(ordered_osim_idx[d]))
+                        -self.osim_model.getMuscles()
+                        .get(osim_idx)
+                        .computeMomentArm(my_state, self.osim_model.getCoordinateSet().get(ordered_osim_idx[d]))
                     )
                 biorbd_mament_arm[:, m, i] = bio_moment_arm_array[m]
                 moment_arm_error[:, m] = np.mean(np.sqrt((osim_moment_arm[:, m, i] - biorbd_mament_arm[:, m, i]) ** 2))
         if plot:
             default_nb_line = 5
-            self._plot_moment_arm(default_nb_line, osim_muscle_idx, ordered_osim_idx, osim_moment_arm, biorbd_mament_arm)
+            self._plot_moment_arm(
+                default_nb_line, osim_muscle_idx, ordered_osim_idx, osim_moment_arm, biorbd_mament_arm
+            )
             self._plot_states(default_nb_line, ordered_osim_idx, osim_state, states)
             plt.show()
         return moment_arm_error
@@ -292,7 +304,9 @@ class VisualizeModel:
 
 
 if __name__ == "__main__":
-    muscle_test = MomentArmTest(biomod="Wu_Shoulder_Model_via_points.bioMod", osim_model="Wu_Shoulder_Model_via_points.osim")
+    muscle_test = MomentArmTest(
+        biomod="Wu_Shoulder_Model_via_points.bioMod", osim_model="Wu_Shoulder_Model_via_points.osim"
+    )
     print(muscle_test.from_markers(markers=np.random.rand(3, 22, 20), plot=False))
     kin_test = KinematicsTest(
         biomod="Wu_Shoulder_Model_via_points.bioMod", osim_model="Wu_Shoulder_Model_via_points.osim"
