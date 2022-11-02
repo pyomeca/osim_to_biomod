@@ -234,7 +234,6 @@ class KinematicsTest(ModelEvaluation):
         return markers_error
 
 
-# TODO add a function to compare muscle lever arm:
 class MomentArmTest(ModelEvaluation):
     def __init__(self, biomod: str, osim_model: str):
         super(MomentArmTest, self).__init__(biomod, osim_model)
