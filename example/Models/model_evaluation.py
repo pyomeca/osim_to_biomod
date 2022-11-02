@@ -1,20 +1,9 @@
 import biorbd
 from math import ceil
-try:
-    import bioviz
-    bioviz_pack = True
-except ModuleNotFoundError:
-    bioviz_pack = False
 import numpy as np
 from osim_to_biomod.utils import *
 import matplotlib.pyplot as plt
-
-try:
-    import opensim as osim
-    import pyosim
-    osim_pack = True
-except ModuleNotFoundError:
-    osim_pack = False
+import opensim as osim
 
 
 class KinematicsTest:
@@ -30,6 +19,17 @@ class KinematicsTest:
         1) inverse kinematic using biorbd
         2) apply the states on both model
         3) compare the markers positions during the movement
+
+        Parameter:
+        markers: np.ndarray()
+            markers data (3, nb_markers, nb_frames) in the order of biomod model
+        marker_names: list
+            list of markers names in the same order as the biomod model
+        plot: bool
+            plot the markers position at the end of the evaluation
+
+        Returns:
+        markers_error: np.ndarray()
         """
         if markers.shape[1] != self.osim_model.getMarkerSet().getSize():
             raise RuntimeError("The number of markers in the model and the markers data must be the same.")
@@ -40,9 +40,23 @@ class KinematicsTest:
         states = self._run_inverse_kin(markers)
         self.marker_names = marker_names
         self.markers = markers
-        return self.from_states(states=states, plot=plot, save=save)
+        return self.from_states(states=states, plot=plot)
 
-    def from_states(self, states, plot: bool = True, save: bool = True) -> np.ndarray:
+    def from_states(self, states, plot: bool = True) -> np.ndarray:
+        """
+        Run test using states data:
+        1) apply the states on both model
+        2) compare the markers positions during the movement
+
+        Parameter:
+        states: np.ndarray()
+            states data (nb_dof, nb_frames) in the order of biomod model
+        plot: bool
+            plot the markers position at the end of the evaluation
+
+        Returns:
+        markers_error: np.ndarray()
+        """
         nb_markers = self.osim_model.getMarkerSet().getSize()
         nb_frame = states.shape[1]
         osim_markers = np.ndarray((3, nb_markers, nb_frame))
@@ -126,9 +140,6 @@ class KinematicsTest:
             ordered_idx += rotation_idx + translation_idx
         return ordered_idx
 
-    def load_movement(self, states):
-        self.states = states
-
     def _run_inverse_kin(self, markers: np.ndarray) -> np.ndarray:
         """
         Run biorbd inverse kinematics
@@ -144,24 +155,28 @@ class KinematicsTest:
         ik.solve()
         return ik.q
 
+
+# TODO add a function to compare muscle lever arm:
 class LeverArmTest:
     def __init__(self):
         pass
 
 
-class VisualizeModel(bioviz.Viz):
+class VisualizeModel:
     def __init__(self, model_path, **kwargs):
-        super().__init__(model_path=model_path, **kwargs)
+        try:
+            import bioviz
+        except ImportError:
+            raise ImportError("bioviz must be installed to visualize the model. ")
+
+        self.viz = bioviz.Viz(model_path, **kwargs)
+        self.viz.exec()
 
 
 if __name__ == '__main__':
-    #viz = VisualizeModel("Wu_Shoulder_Model_via_points.bioMod", )
-    #viz.exec()
     kin_test = KinematicsTest(biomod="Wu_Shoulder_Model_via_points.bioMod", osim_model="Wu_Shoulder_Model_via_points.osim")
-    kin_test.from_states(states=np.random.rand(16, 20)*0.2,  plot=True, save=True)
-    #kin_test.from_states(states=np.zeros((2, 2)), plot=True, save=True)
-    # viz = VisualizeModel("Wu_Shoulder_Model_via_points.bioMod", )
-    # viz.exec()
+    print(kin_test.from_states(states=np.random.rand(16, 20)*0.2,  plot=True))
+    VisualizeModel("Wu_Shoulder_Model_via_points.bioMod", show_floor=False)
 
 
 
