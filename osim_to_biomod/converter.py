@@ -5,7 +5,7 @@ import numpy as np
 
 from .model_classes import Body, Marker, Muscle, Joint
 from .enums import MuscleType, MuscleStateType
-from. utils import is_ortho_basis, ortho_norm_basis, compute_matrix_rotation, OrthoMatrix
+from .utils import is_ortho_basis, ortho_norm_basis, compute_matrix_rotation, OrthoMatrix
 
 
 class ReadOsim:
@@ -343,8 +343,19 @@ class WriteBiomod:
                 f"\t\t\t{r41}\t\t{r42}\t\t{r43}\t\t{r44}\n"
             )
 
-    def write_true_segement(self, name, parent_name, frame_offset, com, mass, inertia, mesh_file=None,
-                            mesh_scale=None, mesh_color=None, rt=0):
+    def write_true_segement(
+        self,
+        name,
+        parent_name,
+        frame_offset,
+        com,
+        mass,
+        inertia,
+        mesh_file=None,
+        mesh_scale=None,
+        mesh_color=None,
+        rt=0,
+    ):
         """
         Segment where is applied inertia.
         """
@@ -354,7 +365,10 @@ class WriteBiomod:
         if inertia:
             [i11, i22, i33, i12, i13, i23] = inertia.split(" ")
             self.write(
-                "\t\tinertia\n" f"\t\t\t{i11}\t{i12}\t{i13}\n" f"\t\t\t{i12}\t{i22}\t{i23}\n" f"\t\t\t{i13}\t{i23}\t{i33}\n"
+                "\t\tinertia\n"
+                f"\t\t\t{i11}\t{i12}\t{i13}\n"
+                f"\t\t\t{i12}\t{i22}\t{i23}\n"
+                f"\t\t\t{i13}\t{i23}\t{i33}\n"
             )
         if com:
             self.write(f"\t\tcom\t{com}\n")
@@ -366,11 +380,19 @@ class WriteBiomod:
                 self.write(f"\t\tmeshscale\t{mesh_scale}\n")
         self.write(f"\tendsegment\n")
 
-    def write_virtual_segment(self, name, parent_name, frame_offset, q_range=None, rt=0, trans_dof="", rot_dof="",
-                              mesh_file=None,
-                              mesh_color=None,
-                              mesh_scale=None
-                              ):
+    def write_virtual_segment(
+        self,
+        name,
+        parent_name,
+        frame_offset,
+        q_range=None,
+        rt=0,
+        trans_dof="",
+        rot_dof="",
+        mesh_file=None,
+        mesh_color=None,
+        mesh_scale=None,
+    ):
         """
         This function aims to add virtual segment to convert osim dof in biomod dof.
         """
@@ -625,8 +647,9 @@ class WriteBiomod:
             parent = body_name
 
         if parent is None:
-            raise RuntimeError(f"You skipped virtual segment definition without define a parent."
-                               f" Please provide a parent name.")
+            raise RuntimeError(
+                f"You skipped virtual segment definition without define a parent." f" Please provide a parent name."
+            )
         # True segment
         frame_offset = [dof.child_offset_trans, dof.child_offset_rot]
         mesh_dir = mesh_dir if mesh_dir else "Geometry"
@@ -643,7 +666,8 @@ class WriteBiomod:
                     mesh_file=f"{mesh_dir}/{body.mesh[i]}",
                     mesh_color=body.mesh_color[i],
                     mesh_scale=body.mesh_scale_factor[i],
-                    rt=0)
+                    rt=0,
+                )
                 frame_offset = None
                 parent = body_name
         self.write("\n    //True segment where are applied inertial values.\n")
@@ -727,7 +751,7 @@ class Converter:
         if self.ground:
             body = self.ground[0]
             dof = Joint()
-            dof.child_offset_trans, dof.child_offset_rot = [0]*3, [0]*3
+            dof.child_offset_trans, dof.child_offset_rot = [0] * 3, [0] * 3
             self.writer.write_dof(body, dof, self.mesh_dir, skip_virtual=True, parent="base")
             self.writer.write(f"\n\t// Markers\n")
             for marker in body.markers:

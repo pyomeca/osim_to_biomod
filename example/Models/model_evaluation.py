@@ -68,51 +68,63 @@ class KinematicsTest:
         for i in range(nb_frame):
             for b in range(states.shape[0]):
                 if self.osim_model.getCoordinateSet().get(ordered_osim_idx[b]).getDefaultValue() != 0:
-                    osim_state[b, i] = states[b, i] + self.osim_model.getCoordinateSet().get(ordered_osim_idx[b]).getDefaultValue()
+                    osim_state[b, i] = (
+                        states[b, i] + self.osim_model.getCoordinateSet().get(ordered_osim_idx[b]).getDefaultValue()
+                    )
                 self.osim_model.getCoordinateSet().get(ordered_osim_idx[b]).setValue(my_state, osim_state[b, i])
             bio_markers_array = self.biomod_model.markers(states[:, i])
-            osim_markers_names = [self.osim_model.getMarkerSet().get(m).toString() for m in range(self.osim_model.getMarkerSet().getSize())]
+            osim_markers_names = [
+                self.osim_model.getMarkerSet().get(m).toString()
+                for m in range(self.osim_model.getMarkerSet().getSize())
+            ]
             osim_marker_idx = []
             for m in range(nb_markers):
                 if self.marker_names and self.marker_names[m] != self.osim_model.getMarkerSet().get(m).getName():
                     raise RuntimeError(
-                        "Markers names are not the same between names and opensim model. Place markers in teh same order as the model.")
+                        "Markers names are not the same between names and opensim model. Place markers in teh same order as the model."
+                    )
                 osim_idx = osim_markers_names.index(self.biomod_model.markerNames()[m].to_string())
                 osim_marker_idx.append(osim_idx)
-                osim_markers[:, m, i] = self.osim_model.getMarkerSet().get(osim_idx).getLocationInGround(my_state).to_numpy()
+                osim_markers[:, m, i] = (
+                    self.osim_model.getMarkerSet().get(osim_idx).getLocationInGround(my_state).to_numpy()
+                )
                 biorbd_markers[:, m, i] = bio_markers_array[m].to_array()
-                markers_error.append(np.mean(np.sqrt((osim_markers[:, m, i] - biorbd_markers[:, m, i])**2)))
+                markers_error.append(np.mean(np.sqrt((osim_markers[:, m, i] - biorbd_markers[:, m, i]) ** 2)))
 
         # 3) compare the markers positions during the movement
         if plot:
             default_nb_line = 5
-            var = ceil(nb_markers/ default_nb_line)
+            var = ceil(nb_markers / default_nb_line)
             nb_line = var if var < default_nb_line else default_nb_line
             # plot osim marker and biomod markers in subplots
             plt.figure("Markers (titles : (osim/biorbd))")
             list_labels = ["osim markers", "biorbd markers"]
             for m in range(nb_markers):
-                plt.subplot(nb_line, ceil(nb_markers/nb_line), m + 1)
+                plt.subplot(nb_line, ceil(nb_markers / nb_line), m + 1)
                 for i in range(3):
                     if self.markers:
                         plt.plot(self.markers[i, m, :], "r--")
                         list_labels = ["experimental markers"] + list_labels
                     plt.plot(osim_markers[i, m, :], "b")
                     plt.plot(biorbd_markers[i, m, :], "g")
-                plt.title(f"{self.osim_model.getMarkerSet().get(osim_marker_idx[m]).getName()}/"
-                          f"{self.biomod_model.markerNames()[m].to_string()}")
+                plt.title(
+                    f"{self.osim_model.getMarkerSet().get(osim_marker_idx[m]).getName()}/"
+                    f"{self.biomod_model.markerNames()[m].to_string()}"
+                )
                 if m == 0:
                     plt.legend(labels=list_labels)
                 # axs[m].legend()
             plt.figure("states (titles : (osim/biorbd))")
-            var = ceil(states.shape[0]/default_nb_line)
+            var = ceil(states.shape[0] / default_nb_line)
             nb_line = var if var < default_nb_line else default_nb_line
             for i in range(states.shape[0]):
-                plt.subplot(nb_line, ceil(states.shape[0]/nb_line), i + 1)
+                plt.subplot(nb_line, ceil(states.shape[0] / nb_line), i + 1)
                 plt.plot(osim_state[i, :], "b")
                 plt.plot(states[i, :], "g")
-                plt.title(f"{self.osim_model.getCoordinateSet().get(ordered_osim_idx[i]).getName()}/"
-                          f"{self.biomod_model.nameDof()[i].to_string()}")
+                plt.title(
+                    f"{self.osim_model.getCoordinateSet().get(ordered_osim_idx[i]).getName()}/"
+                    f"{self.biomod_model.nameDof()[i].to_string()}"
+                )
                 if i == 0:
                     plt.legend(labels=["osim states (handle default value)", "states"])
             plt.show()
@@ -173,11 +185,9 @@ class VisualizeModel:
         self.viz.exec()
 
 
-if __name__ == '__main__':
-    kin_test = KinematicsTest(biomod="Wu_Shoulder_Model_via_points.bioMod", osim_model="Wu_Shoulder_Model_via_points.osim")
-    print(kin_test.from_states(states=np.random.rand(16, 20)*0.2,  plot=True))
+if __name__ == "__main__":
+    kin_test = KinematicsTest(
+        biomod="Wu_Shoulder_Model_via_points.bioMod", osim_model="Wu_Shoulder_Model_via_points.osim"
+    )
+    print(kin_test.from_states(states=np.random.rand(16, 20) * 0.2, plot=True))
     VisualizeModel("Wu_Shoulder_Model_via_points.bioMod", show_floor=False)
-
-
-
-
