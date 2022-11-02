@@ -93,12 +93,13 @@ class ReadOsim:
         else:
             return True
 
-    def get_body_set(self):
+    def get_body_set(self, body_set=None):
         bodies = []
-        if self._is_element_empty(self.bodyset_elt):
+        body_set = body_set if body_set else self.bodyset_elt[0]
+        if self._is_element_empty(body_set):
             return None
         else:
-            for element in self.bodyset_elt[0]:
+            for element in body_set:
                 bodies.append(Body().get_body_attrib(element))
             return bodies
 
@@ -347,14 +348,16 @@ class WriteBiomod:
         """
         Segment where is applied inertia.
         """
-        [i11, i22, i33, i12, i13, i23] = inertia
-
         self.write_generic_segment(name, parent_name, frame_offset=frame_offset, rt_in_matrix=rt)
-        self.write(f"\t\tmass\t{mass}\n")
-        self.write(
-            "\t\tinertia\n" f"\t\t\t{i11}\t{i12}\t{i13}\n" f"\t\t\t{i12}\t{i22}\t{i23}\n" f"\t\t\t{i13}\t{i23}\t{i33}\n"
-        )
-        self.write(f"\t\tcom\t{com}\n")
+        if mass:
+            self.write(f"\t\tmass\t{mass}\n")
+        if inertia:
+            [i11, i22, i33, i12, i13, i23] = inertia.split(" ")
+            self.write(
+                "\t\tinertia\n" f"\t\t\t{i11}\t{i12}\t{i13}\n" f"\t\t\t{i12}\t{i22}\t{i23}\n" f"\t\t\t{i13}\t{i23}\t{i33}\n"
+            )
+        if com:
+            self.write(f"\t\tcom\t{com}\n")
         if mesh_file:
             self.write(f"\t\tmeshfile\t{mesh_file}\n")
             if mesh_color:
@@ -528,98 +531,102 @@ class WriteBiomod:
             parent = body_dof
         return axis_offset, parent
 
-    def write_dof(self, body, dof, mesh_dir=None):
+    def write_dof(self, body, dof, mesh_dir=None, skip_virtual=False, parent=None):
         rotomatrix = OrthoMatrix([0, 0, 0])
         self.write(f"\n// Information about {body.name} segment\n")
-        parent = dof.parent_body.split("/")[-1]
-        axis_offset = np.identity(3)
-        # Parent offset
-        body_name = body.name + "_parent_offset"
-        offset = [dof.parent_offset_trans, dof.parent_offset_rot]
-        self.write_virtual_segment(body_name, parent, frame_offset=offset, rt=0)
-        parent = body_name
-        # Coordinates
-        (
-            translations,
-            q_ranges_trans,
-            is_dof_trans,
-            default_value_trans,
-            rotations,
-            q_ranges_rot,
-            is_dof_rot,
-            default_value_rot,
-        ) = self._get_transformation_parameters(dof.spatial_transform)
+        if not skip_virtual:
+            parent = dof.parent_body.split("/")[-1]
+            axis_offset = np.identity(3)
+            # Parent offset
+            body_name = body.name + "_parent_offset"
+            offset = [dof.parent_offset_trans, dof.parent_offset_rot]
+            self.write_virtual_segment(body_name, parent, frame_offset=offset, rt=0)
+            parent = body_name
+            # Coordinates
+            (
+                translations,
+                q_ranges_trans,
+                is_dof_trans,
+                default_value_trans,
+                rotations,
+                q_ranges_rot,
+                is_dof_rot,
+                default_value_rot,
+            ) = self._get_transformation_parameters(dof.spatial_transform)
 
-        is_dof_trans, is_dof_rot = np.array(is_dof_trans), np.array(is_dof_rot)
-        dof_axis = np.array(["x", "y", "z"])
-        if len(translations) != 0 or len(rotations) != 0:
-            self.write("\t// Segments to define transformation axis.\n")
-        # Translations
-        if len(translations) != 0:
-            body_name = body.name + "_translation"
-            if is_ortho_basis(translations):
-                trans_axis = ""
-                for idx in np.where(is_dof_trans != None)[0]:
-                    trans_axis += dof_axis[idx]
-                axis_offset = self.write_ortho_segment(
-                    axis=translations,
-                    axis_offset=axis_offset,
-                    name=body_name,
-                    parent=parent,
-                    rt_in_matrix=1,
-                    frame_offset=rotomatrix,
-                    q_range=q_ranges_trans,
-                    trans_dof=trans_axis,
-                )
-                parent = body_name
-            else:
-                raise RuntimeError("Non orthogonal translation vector not implemented yet.")
+            is_dof_trans, is_dof_rot = np.array(is_dof_trans), np.array(is_dof_rot)
+            dof_axis = np.array(["x", "y", "z"])
+            if len(translations) != 0 or len(rotations) != 0:
+                self.write("\t// Segments to define transformation axis.\n")
+            # Translations
+            if len(translations) != 0:
+                body_name = body.name + "_translation"
+                if is_ortho_basis(translations):
+                    trans_axis = ""
+                    for idx in np.where(is_dof_trans != None)[0]:
+                        trans_axis += dof_axis[idx]
+                    axis_offset = self.write_ortho_segment(
+                        axis=translations,
+                        axis_offset=axis_offset,
+                        name=body_name,
+                        parent=parent,
+                        rt_in_matrix=1,
+                        frame_offset=rotomatrix,
+                        q_range=q_ranges_trans,
+                        trans_dof=trans_axis,
+                    )
+                    parent = body_name
+                else:
+                    raise RuntimeError("Non orthogonal translation vector not implemented yet.")
 
-            # Rotations
-        if len(rotations) != 0:
-            if is_ortho_basis(rotations):
-                rot_axis = ""
-                for idx in np.where(is_dof_rot != None)[0]:
-                    rot_axis += dof_axis[idx]
-                body_name = body.name + "_rotation_transform"
-                self.write("// Rotation transform was initially an orthogonal basis\n")
-                axis_offset = self.write_ortho_segment(
-                    axis=rotations,
-                    axis_offset=axis_offset,
-                    name=body_name,
-                    parent=parent,
-                    rt_in_matrix=1,
-                    frame_offset=rotomatrix,
-                    q_range=q_ranges_rot,
-                    rot_dof=rot_axis,
-                )
-                parent = body_name
-            else:
-                body_name = body.name
-                axis_offset, parent = self.write_non_ortho_rot_segment(
-                    rotations,
-                    axis_offset,
-                    body_name,
-                    parent,
-                    frame_offset=rotomatrix,
-                    rt_in_matrix=1,
-                    spatial_transform=dof.spatial_transform,
-                    q_ranges=q_ranges_rot,
-                    default_values=default_value_rot,
-                )
+                # Rotations
+            if len(rotations) != 0:
+                if is_ortho_basis(rotations):
+                    rot_axis = ""
+                    for idx in np.where(is_dof_rot != None)[0]:
+                        rot_axis += dof_axis[idx]
+                    body_name = body.name + "_rotation_transform"
+                    self.write("// Rotation transform was initially an orthogonal basis\n")
+                    axis_offset = self.write_ortho_segment(
+                        axis=rotations,
+                        axis_offset=axis_offset,
+                        name=body_name,
+                        parent=parent,
+                        rt_in_matrix=1,
+                        frame_offset=rotomatrix,
+                        q_range=q_ranges_rot,
+                        rot_dof=rot_axis,
+                    )
+                    parent = body_name
+                else:
+                    body_name = body.name
+                    axis_offset, parent = self.write_non_ortho_rot_segment(
+                        rotations,
+                        axis_offset,
+                        body_name,
+                        parent,
+                        frame_offset=rotomatrix,
+                        rt_in_matrix=1,
+                        spatial_transform=dof.spatial_transform,
+                        q_ranges=q_ranges_rot,
+                        default_values=default_value_rot,
+                    )
 
-        # segment to cancel axis effects
-        self.write("\n    // Segment to cancel transformation bases effect.\n")
-        rotomatrix.set_rotation_matrix(np.linalg.inv(axis_offset))
-        body_name = body.name + "_reset_axis"
-        self.write_virtual_segment(
-            body_name,
-            parent,
-            frame_offset=rotomatrix,
-            rt=1,
-        )
-        parent = body_name
+            # segment to cancel axis effects
+            self.write("\n    // Segment to cancel transformation bases effect.\n")
+            rotomatrix.set_rotation_matrix(np.linalg.inv(axis_offset))
+            body_name = body.name + "_reset_axis"
+            self.write_virtual_segment(
+                body_name,
+                parent,
+                frame_offset=rotomatrix,
+                rt=1,
+            )
+            parent = body_name
 
+        if parent is None:
+            raise RuntimeError(f"You skipped virtual segment definition without define a parent."
+                               f" Please provide a parent name.")
         # True segment
         frame_offset = [dof.child_offset_trans, dof.child_offset_rot]
         mesh_dir = mesh_dir if mesh_dir else "Geometry"
@@ -647,7 +654,7 @@ class WriteBiomod:
             frame_offset=frame_offset,
             com=body.mass_center,
             mass=body.mass,
-            inertia=body.inertia.split(" "),
+            inertia=body.inertia,
             mesh_file=mesh_file,
             mesh_color=body.mesh_color[0],
             mesh_scale=body.mesh_scale_factor[0],
@@ -675,11 +682,14 @@ class Converter:
         self.writer = WriteBiomod(biomod_path)
         self.print_warnings = print_warnings
         self.print_general_informations = print_general_informations
+        self.ground = self.osim_model.get_body_set(body_set=[self.osim_model.ground_elt])
         self.forces = self.osim_model.get_force_set(ignore_muscle_applied_tag)
         self.joints = self.osim_model.get_joint_set(ignore_fixed_dof_tag, ignore_clamped_dof_tag)
         self.bodies = self.osim_model.get_body_set()
         self.markers = self.osim_model.get_marker_set()
         self.infos, self.warnings = self.osim_model.infos, self.osim_model.get_warnings()
+        self.ground = self.osim_model.add_markers_to_bodies(self.ground, self.markers)
+
         self.bodies = self.osim_model.add_markers_to_bodies(self.bodies, self.markers)
         self.muscle_type = muscle_type if muscle_type else "hilldegroote"
         self.state_type = state_type
@@ -713,6 +723,15 @@ class Converter:
 
         # segment
         self.writer.write("\n// SEGMENT DEFINITION\n")
+        # Handle the ground frame as a segment
+        if self.ground:
+            body = self.ground[0]
+            dof = Joint()
+            dof.child_offset_trans, dof.child_offset_rot = [0]*3, [0]*3
+            self.writer.write_dof(body, dof, self.mesh_dir, skip_virtual=True, parent="base")
+            self.writer.write(f"\n\t// Markers\n")
+            for marker in body.markers:
+                self.writer.write_marker(marker)
         for dof in self.joints:
             for body in self.bodies:
                 if body.socket_frame == dof.child_body:

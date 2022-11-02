@@ -24,6 +24,7 @@ class Body:
         self.inertia = find(element, "inertia")
         self.mass_center = find(element, "mass_center")
         geometry = element.find("FrameGeometry")
+        self.socket_frame = self.name
         if geometry:
             self.socket_frame = geometry.find("socket_frame").text.split("/")[-1]
             if self.socket_frame == "..":
