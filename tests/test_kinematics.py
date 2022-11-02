@@ -1,5 +1,5 @@
 import os
-from example.Models.model_test import KinematicsTest
+from example.Models.model_evaluation import KinematicsTest
 import numpy as np
 
 

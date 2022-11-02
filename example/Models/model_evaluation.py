@@ -33,7 +33,7 @@ class KinematicsTest:
         """
         if markers.shape[1] != self.osim_model.getMarkerSet().getSize():
             raise RuntimeError("The number of markers in the model and the markers data must be the same.")
-        elif markers.shape[0]!= 3:
+        elif markers.shape[0] != 3:
             raise RuntimeError("The markers data must be a 3D array of dim (3, n_markers, n_frames).")
 
         # 1) inverse kinematic using biorbd
@@ -71,47 +71,37 @@ class KinematicsTest:
 
         # 3) compare the markers positions during the movement
         if plot:
+            default_nb_line = 5
+            var = ceil(nb_markers/ default_nb_line)
+            nb_line = var if var < default_nb_line else default_nb_line
             # plot osim marker and biomod markers in subplots
-            # fig, axs = plt.subplots(5, nb_markers//5)
-            plt.figure("Markers")
+            plt.figure("Markers (titles : (osim/biorbd))")
+            list_labels = ["osim markers", "biorbd markers"]
             for m in range(nb_markers):
-                plt.subplot(5, ceil(nb_markers/5), m + 1)
+                plt.subplot(nb_line, ceil(nb_markers/nb_line), m + 1)
                 for i in range(3):
                     if self.markers:
                         plt.plot(self.markers[i, m, :], "r--")
+                        list_labels = ["experimental markers"] + list_labels
                     plt.plot(osim_markers[i, m, :], "b")
                     plt.plot(biorbd_markers[i, m, :], "g")
                 plt.title(f"{self.osim_model.getMarkerSet().get(osim_marker_idx[m]).getName()}/"
                           f"{self.biomod_model.markerNames()[m].to_string()}")
+                if m == 0:
+                    plt.legend(labels=list_labels)
                 # axs[m].legend()
-            plt.figure("states")
+            plt.figure("states (titles : (osim/biorbd))")
+            var = ceil(states.shape[0]/default_nb_line)
+            nb_line = var if var < default_nb_line else default_nb_line
             for i in range(states.shape[0]):
-                plt.subplot(5, ceil(states.shape[0]/5), i + 1)
-                plt.plot(states[i, :], "b")
-                plt.plot(osim_state[i, :], "g")
+                plt.subplot(nb_line, ceil(states.shape[0]/nb_line), i + 1)
+                plt.plot(osim_state[i, :], "b")
+                plt.plot(states[i, :], "g")
                 plt.title(f"{self.osim_model.getCoordinateSet().get(ordered_osim_idx[i]).getName()}/"
                           f"{self.biomod_model.nameDof()[i].to_string()}")
+                if i == 0:
+                    plt.legend(labels=["osim states (handle default value)", "states"])
             plt.show()
-        if save:
-            # save osim marker and biomod markers in csv file
-            headers = ["Model type :", "Biomod"]
-            headers += [""] * nb_markers * 2 + ["Opensim"]
-            header_tmp = []
-            for m in range(nb_markers):
-                header_tmp += [self.osim_model.getMarkerSet().get(m).getName()]
-                header_tmp += [""] * 2
-            headers.append(header_tmp)
-            headers.append(["frame"] + (["x", "y", "z"] * nb_markers * 2))
-            with open("markers_results.csv", "w", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerows(headers)
-                for i in range(nb_frame):
-                    row = [i]
-                    for m in range(nb_markers):
-                        row += biorbd_markers[:, m, i].tolist()
-                    for m in range(nb_markers):
-                        row += osim_markers[:, m, i].tolist()
-                    writer.writerow(row)
         return markers_error
 
     # def from_states(self, states):
@@ -151,7 +141,7 @@ class KinematicsTest:
             states: np.ndarray
         """
         ik = biorbd.InverseKinematics(self.biomod_model, markers)
-        ik.solve("only_lm")
+        ik.solve()
         return ik.q
 
 class LeverArmTest:
