@@ -412,20 +412,21 @@ class WriteBiomod:
             if q_range.count(None) != 3:
                 count = 0
                 for q in q_range:
-                    if q_range and q[:2] == "//":
+                    if q and q[:2] == "//":
                         count += 1
 
                 for q, qrange in enumerate(q_range):
-                    if rot_dof[:2] == "//":
-                        range_to_write = f"\t\t\t\t//{qrange[2:]}\n"
-                    else:
-                        range_to_write = f"\t\t\t\t{qrange}\n"
-                    if q == 0:
-                        if count == len(q_range):
-                            self.write(f"\t\t// ranges\n")
+                    if qrange:
+                        if rot_dof[:2] == "//":
+                            range_to_write = f"\t\t\t\t//{qrange[2:]}\n"
                         else:
-                            self.write(f"\t\tranges\n")
-                    self.write(range_to_write)
+                            range_to_write = f"\t\t\t\t{qrange}\n"
+                        if q == 0:
+                            if count == len(q_range):
+                                self.write(f"\t\t// ranges\n")
+                            else:
+                                self.write(f"\t\tranges\n")
+                        self.write(range_to_write)
 
         if mesh_file:
             self.write(f"\t\tmeshfile\t{mesh_file}\n")
