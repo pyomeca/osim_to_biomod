@@ -411,6 +411,8 @@ class WriteBiomod:
                 q_range = [q_range]
             if q_range.count(None) != 3:
                 count = 0
+                # take only the non None values in q_range list
+                q_range = [q for q in q_range if q is not None]
                 for q in q_range:
                     if q_range and q[:2] == "//":
                         count += 1
