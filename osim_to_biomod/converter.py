@@ -359,7 +359,7 @@ class WriteBiomod:
                 f"\t\t\t{r41}\t\t{r42}\t\t{r43}\t\t{r44}\n"
             )
 
-    def write_true_segement(
+    def write_true_segment(
         self,
         name,
         parent_name,
@@ -690,7 +690,7 @@ class WriteBiomod:
                 parent = body_name
         self.write("\n    //True segment where are applied inertial values.\n")
         mesh_file = f"{mesh_dir}/{body.mesh[0]}" if body.mesh[0] else None
-        self.write_true_segement(
+        self.write_true_segment(
             body.name,
             parent,
             frame_offset=frame_offset,
