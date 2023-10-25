@@ -859,12 +859,15 @@ class Converter:
                 print(complete_path)
                 try:
                     mesh = read_vtp_file(complete_path)
-                    poly, nodes, normals = transform_polygon_to_triangles(
-                        mesh["polygons"], mesh["nodes"], mesh["normals"]
-                    )
-                    new_mesh = dict(polygons=poly, nodes=nodes, normals=normals)
+                    if mesh["polygons"].shape[1] == 3:  # it means it doesn't need to be converted into triangles
+                        shutil.copy(complete_path, self.new_mesh_dir)
+                    else:
+                        poly, nodes, normals = transform_polygon_to_triangles(
+                            mesh["polygons"], mesh["nodes"], mesh["normals"]
+                        )
+                        new_mesh = dict(polygons=poly, nodes=nodes, normals=normals)
 
-                    write_vtp_file(new_mesh, self.new_mesh_dir, filename)
+                        write_vtp_file(new_mesh, self.new_mesh_dir, filename)
 
                 except:
                     print(f"Error with {filename}")
