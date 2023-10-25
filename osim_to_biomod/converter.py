@@ -1,3 +1,6 @@
+import os
+import shutil
+
 from xml.etree import ElementTree
 
 from lxml import etree
@@ -6,6 +9,8 @@ import numpy as np
 from .model_classes import Body, Marker, Muscle, Joint
 from .enums import MuscleType, MuscleStateType
 from .utils import is_ortho_basis, ortho_norm_basis, compute_matrix_rotation, OrthoMatrix
+from .vtp_parser import read_vtp_file, write_vtp_file
+from .mesh_cleaner import transform_polygon_to_triangles
 
 
 class ReadOsim:
@@ -102,6 +107,17 @@ class ReadOsim:
             for element in body_set:
                 bodies.append(Body().get_body_attrib(element))
             return bodies
+
+    def get_body_mesh_list(self, body_set=None) -> list[str]:
+        """returns the list of vtp files included in the model"""
+        body_mesh_list = []
+        body_set = body_set if body_set else self.bodyset_elt[0]
+        if self._is_element_empty(body_set):
+            return None
+        else:
+            for element in body_set:
+                body_mesh_list.extend(Body().get_body_attrib(element).mesh)
+            return body_mesh_list
 
     def get_marker_set(self):
         markers = []
@@ -654,7 +670,7 @@ class WriteBiomod:
             )
         # True segment
         frame_offset = [dof.child_offset_trans, dof.child_offset_rot]
-        mesh_dir = mesh_dir if mesh_dir else "Geometry"
+
         body.mesh = body.mesh if len(body.mesh) != 0 else [None]
         body.mesh_color = body.mesh_color if len(body.mesh_color) != 0 else [None]
         body.mesh_scale_factor = body.mesh_scale_factor if len(body.mesh_scale_factor) != 0 else [None]
@@ -701,6 +717,7 @@ class Converter:
         ignore_fixed_dof_tag=False,
         mesh_dir=None,
         ignore_muscle_applied_tag=False,
+        vtp_to_triangles=True,
     ):
         self.biomod_path = biomod_path
         self.osim_model = ReadOsim(osim_path)
@@ -719,7 +736,11 @@ class Converter:
         self.bodies = self.osim_model.add_markers_to_bodies(self.bodies, self.markers)
         self.muscle_type = muscle_type if muscle_type else "hilldegroote"
         self.state_type = state_type
-        self.mesh_dir = mesh_dir
+        self.mesh_dir = "Geometry" if mesh_dir is None else mesh_dir
+
+        self.new_mesh_dir = self.mesh_dir + "_cleaned"
+        self.vtp_to_triangles = vtp_to_triangles
+        self.vtp_files = self.osim_model.get_body_mesh_list()
 
         if isinstance(self.muscle_type, MuscleType):
             self.muscle_type = self.muscle_type.value
@@ -747,6 +768,9 @@ class Converter:
             self.infos,
         )
 
+        if self.vtp_to_triangles:
+            self.convert_vtp_to_triangles()
+
         # segment
         self.writer.write("\n// SEGMENT DEFINITION\n")
         # Handle the ground frame as a segment
@@ -754,14 +778,24 @@ class Converter:
             body = self.ground[0]
             dof = Joint()
             dof.child_offset_trans, dof.child_offset_rot = [0] * 3, [0] * 3
-            self.writer.write_dof(body, dof, self.mesh_dir, skip_virtual=True, parent="base")
+            self.writer.write_dof(
+                body,
+                dof,
+                self.new_mesh_dir if self.vtp_to_triangles else self.mesh_dir,
+                skip_virtual=True,
+                parent="base",
+            )
             self.writer.write(f"\n\t// Markers\n")
             for marker in body.markers:
                 self.writer.write_marker(marker)
         for dof in self.joints:
             for body in self.bodies:
                 if body.socket_frame == dof.child_body:
-                    self.writer.write_dof(body, dof, self.mesh_dir)
+                    self.writer.write_dof(
+                        body,
+                        dof,
+                        self.new_mesh_dir if self.vtp_to_triangles else self.mesh_dir,
+                    )
                     self.writer.write(f"\n\t// Markers\n")
                     for marker in body.markers:
                         self.writer.write_marker(marker)
@@ -801,3 +835,44 @@ class Converter:
             self.writer.write("*/\n")
         self.writer.biomod_file.close()
         print(f"\nYour file {self.osim_path} has been converted into {self.biomod_path}.")
+
+    def convert_vtp_to_triangles(self):
+        """
+        Convert vtp mesh to triangles mesh
+        """
+        if not os.path.exists(self.new_mesh_dir):
+            os.makedirs(self.new_mesh_dir)
+
+        log_file_failed = []
+        print("Cleaning vtp file into triangles: ")
+
+        # select only files in such that filename.endswith('.vtp') or filename in self.vtp_files
+        files = [
+            filename
+            for filename in os.listdir(self.mesh_dir)
+            if filename.endswith(".vtp") and filename in self.vtp_files
+        ]
+
+        for filename in files:
+            complete_path = os.path.join(self.mesh_dir, filename)
+
+            with open(complete_path, "r") as f:
+                print(complete_path)
+                try:
+                    mesh = read_vtp_file(complete_path)
+                    poly, nodes, normals = transform_polygon_to_triangles(
+                        mesh["polygons"], mesh["nodes"], mesh["normals"]
+                    )
+                    new_mesh = dict(polygons=poly, nodes=nodes, normals=normals)
+
+                    write_vtp_file(new_mesh, self.new_mesh_dir, filename)
+
+                except:
+                    print(f"Error with {filename}")
+                    log_file_failed.append(filename)
+                    # if failed we just copy the file in the new folder
+                    shutil.copy(complete_path, self.new_mesh_dir)
+
+        if len(log_file_failed) > 0:
+            print("Files failed to clean:")
+            print(log_file_failed)
