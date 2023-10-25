@@ -505,7 +505,6 @@ class WriteBiomod:
     def write_ortho_segment(
         self, axis, axis_offset, name, parent, rt_in_matrix, frame_offset, q_range=None, trans_dof="", rot_dof=""
     ):
-
         x = axis[0]
         y = axis[1]
         z = axis[2]
@@ -533,7 +532,6 @@ class WriteBiomod:
         q_ranges=None,
         default_values=None,
     ):
-
         default_values = [0, 0, 0] if not default_values else default_values
         axis_basis = []
         list_rot_dof = ["x", "y", "z"]
@@ -552,7 +550,8 @@ class WriteBiomod:
                 )
                 initial_rotation = compute_matrix_rotation([0, 0, float(default_values[i])])
 
-            # TODO: Do not add a try here. If the you can know in advance the error, test it with a if. If you actually need a try, catch a specific error (`except ERRORNAME:` instead of `except:`)
+            # TODO: Do not add a try here. If the you can know in advance the error, test it with a if.
+            #  If you actually need a try, catch a specific error (`except ERRORNAME:` instead of `except:`)
             try:
                 coordinate = spatial_transform[i].coordinate
                 rot_dof = list_rot_dof[count_dof_rot] if not coordinate.locked else "//" + list_rot_dof[count_dof_rot]
