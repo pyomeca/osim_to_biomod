@@ -716,7 +716,7 @@ class Converter:
         ignore_fixed_dof_tag=False,
         mesh_dir=None,
         ignore_muscle_applied_tag=False,
-        vtp_to_triangles=True,
+        vtp_polygons_to_triangles=True,
     ):
         self.biomod_path = biomod_path
         self.osim_model = ReadOsim(osim_path)
@@ -738,7 +738,7 @@ class Converter:
         self.mesh_dir = "Geometry" if mesh_dir is None else mesh_dir
 
         self.new_mesh_dir = self.mesh_dir + "_cleaned"
-        self.vtp_to_triangles = vtp_to_triangles
+        self.vtp_polygons_to_triangles = vtp_polygons_to_triangles
         self.vtp_files = self.osim_model.get_body_mesh_list()
 
         if isinstance(self.muscle_type, MuscleType):
@@ -767,7 +767,7 @@ class Converter:
             self.infos,
         )
 
-        if self.vtp_to_triangles:
+        if self.vtp_polygons_to_triangles:
             self.convert_vtp_to_triangles()
 
         # segment
@@ -780,7 +780,7 @@ class Converter:
             self.writer.write_dof(
                 body,
                 dof,
-                self.new_mesh_dir if self.vtp_to_triangles else self.mesh_dir,
+                self.new_mesh_dir if self.vtp_polygons_to_triangles else self.mesh_dir,
                 skip_virtual=True,
                 parent="base",
             )
@@ -793,7 +793,7 @@ class Converter:
                     self.writer.write_dof(
                         body,
                         dof,
-                        self.new_mesh_dir if self.vtp_to_triangles else self.mesh_dir,
+                        self.new_mesh_dir if self.vtp_polygons_to_triangles else self.mesh_dir,
                     )
                     self.writer.write(f"\n\t// Markers\n")
                     for marker in body.markers:

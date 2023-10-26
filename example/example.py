@@ -13,6 +13,6 @@ if __name__ == "__main__":
         state_type=MuscleStateType.DEGROOTE,
         print_warnings=True,
         print_general_informations=True,
-        vtp_to_triangles=True,
+        vtp_polygons_to_triangles=True,
     )
     converter.convert_file()
