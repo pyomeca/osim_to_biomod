@@ -1,7 +1,8 @@
 import numpy as np
 
-from .utils import find, compute_matrix_rotation, rot2eul
 from .enums import JointType
+from .utils import OrthoMatrix
+from .utils import find, compute_matrix_rotation, rot2eul
 
 
 class Body:
@@ -10,12 +11,13 @@ class Body:
         self.mass = None
         self.inertia = None
         self.mass_center = None
-        self.mesh = []
         self.wrap = None
         self.socket_frame = None
         self.markers = []
+        self.mesh = []
         self.mesh_color = []
         self.mesh_scale_factor = []
+        self.mesh_offset = []
         self.virtual_body = []
 
     def get_body_attrib(self, element):
@@ -35,15 +37,37 @@ class Body:
 
         if element.find("attached_geometry") is not None:
             mesh_list = element.find("attached_geometry").findall("Mesh")
+            mesh_list = extend_mesh_list_with_extra_components(mesh_list, element)
+
             for mesh in mesh_list:
-                self.mesh.append(mesh.find("mesh_file").text)
-                self.virtual_body.append(mesh.attrib["name"])
-                mesh_scale_factor = mesh.find("scale_factors")
+                self.mesh.append(mesh[0].find("mesh_file").text)
+                self.virtual_body.append(mesh[0].attrib["name"])
+                mesh_scale_factor = mesh[0].find("scale_factors")
                 self.mesh_scale_factor.append(mesh_scale_factor.text if mesh_scale_factor is not None else None)
-                if mesh.find("Appearance") is not None:
-                    mesh_color = mesh.find("Appearance").find("color")
+                if mesh[0].find("Appearance") is not None:
+                    mesh_color = mesh[0].find("Appearance").find("color")
                     self.mesh_color.append(mesh_color.text if mesh_color is not None else None)
+                self.mesh_offset.append(mesh[1])
         return self
+
+
+def extend_mesh_list_with_extra_components(mesh_list, element) -> list[tuple[str, OrthoMatrix]]:
+    """Convert mesh_list from list[str] to list[tuple(str, OrthoMatrix)] to include offset in some meshes"""
+    mesh_list_and_offset = [(mesh, OrthoMatrix()) for mesh in mesh_list]
+
+    if element.find("components"):
+        frames = element.find("components").findall("PhysicalOffsetFrame")
+        for frame in frames:
+            if frame.find("attached_geometry") is not None:
+                translation = frame.find("translation").text
+                translation_tuple = tuple([float(t) for t in translation.split(" ")])
+                tuple_mesh_and_offset = (
+                    frame.find("attached_geometry").find("Mesh"),
+                    OrthoMatrix(translation=translation_tuple),
+                )
+                mesh_list_and_offset.append(tuple_mesh_and_offset)
+
+    return mesh_list_and_offset
 
 
 class Joint:
