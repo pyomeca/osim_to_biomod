@@ -329,7 +329,7 @@ class WriteBiomod:
         self.write("\n\t\tendviapoint")
         self.write("\n")
 
-    def write_generic_segment(self, name, parent, rt_in_matrix, frame_offset=None):
+    def write_generic_segment(self, name: str, parent: str, rt_in_matrix: int, frame_offset=None):
         self.write(f"\t// Segment\n")
         self.write(f"\tsegment {name}\n")
         self.write(f"\t\tparent {parent} \n")
@@ -653,14 +653,16 @@ class WriteBiomod:
             # segment to cancel axis effects
             self.write("\n    // Segment to cancel transformation bases effect.\n")
             rotomatrix.set_rotation_matrix(np.linalg.inv(axis_offset))
-            body_name = body.name + "_reset_axis"
-            self.write_virtual_segment(
-                body_name,
-                parent,
-                frame_offset=rotomatrix,
-                rt=1,
-            )
-            parent = body_name
+
+            if not rotomatrix.has_no_transformation():
+                body_name = body.name + "_reset_axis"
+                self.write_virtual_segment(
+                    body_name,
+                    parent,
+                    frame_offset=rotomatrix,
+                    rt=1,
+                )
+                parent = body_name
 
         if parent is None:
             raise RuntimeError(
