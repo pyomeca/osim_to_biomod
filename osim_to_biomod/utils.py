@@ -142,6 +142,9 @@ class OrthoMatrix:
     def get_axis(self):
         return coord_sys(self.axe_1)[1] + coord_sys(self.axe_2)[1] + coord_sys(self.axe_3)[1]
 
+    def has_no_transformation(self):
+        return np.all(self.get_matrix() == np.eye(4))
+
 
 def out_product(rotomatrix_1, rotomatrix_2):
     rotomatrix_prod = OrthoMatrix()

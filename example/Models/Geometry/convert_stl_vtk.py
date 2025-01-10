@@ -18,7 +18,7 @@ def stl2vtp(input_filename, output_filename):
     writter.Write()
 
 
-def scalestl(filename, scale=(1,1,1), output_filename=None):
+def scalestl(filename, scale=(1, 1, 1), output_filename=None):
     output_filename = output_filename if output_filename else f"{Path(filename).stem}_scaled.stl"
 
     reader = vtk.vtkSTLReader()
@@ -37,7 +37,6 @@ def scalestl(filename, scale=(1,1,1), output_filename=None):
     # sim.SetTargetReduction(5)
     # sim.SetInputData(reader.GetOutputPort())
     # sim.PreserveTopologyOn()
-
 
     # writer = vtk.vtkSTLWriter()
     # writer.SetFileName(output_filename)
@@ -76,11 +75,10 @@ def reducestl(filename, ratio=1.0, output_filename=None):
     writer.Write()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # stl2vtp(input_filename="prothese.stl", output_filename="prothese.vtp")
     filename = "humerus.stl"
-    scalestl(filename, (0.001, 0.001, 0.001),
-             output_filename="/osim_model/Geometry/humerus_scaled.vtp")
+    scalestl(filename, (0.001, 0.001, 0.001), output_filename="/osim_model/Geometry/humerus_scaled.vtp")
     # filename = "scapula_wt_aromion_scaled.stl"
     # scalestl(filename, (0.114, 0.114, 0.114))
     # reducestl(filename, ratio=2)

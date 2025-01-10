@@ -1,11 +1,15 @@
+import os
+import shutil
 from xml.etree import ElementTree
 
-from lxml import etree
 import numpy as np
+from lxml import etree
 
-from .model_classes import Body, Marker, Muscle, Joint
 from .enums import MuscleType, MuscleStateType
+from .mesh_cleaner import transform_polygon_to_triangles
+from .model_classes import Body, Marker, Muscle, Joint
 from .utils import is_ortho_basis, ortho_norm_basis, compute_matrix_rotation, OrthoMatrix
+from .vtp_parser import read_vtp_file, write_vtp_file
 
 
 class ReadOsim:
@@ -102,6 +106,17 @@ class ReadOsim:
             for element in body_set:
                 bodies.append(Body().get_body_attrib(element))
             return bodies
+
+    def get_body_mesh_list(self, body_set=None) -> list[str]:
+        """returns the list of vtp files included in the model"""
+        body_mesh_list = []
+        body_set = body_set if body_set else self.bodyset_elt[0]
+        if self._is_element_empty(body_set):
+            return None
+        else:
+            for element in body_set:
+                body_mesh_list.extend(Body().get_body_attrib(element).mesh)
+            return body_mesh_list
 
     def get_marker_set(self):
         markers = []
@@ -314,7 +329,7 @@ class WriteBiomod:
         self.write("\n\t\tendviapoint")
         self.write("\n")
 
-    def write_generic_segment(self, name, parent, rt_in_matrix, frame_offset=None):
+    def write_generic_segment(self, name: str, parent: str, rt_in_matrix: int, frame_offset=None):
         self.write(f"\t// Segment\n")
         self.write(f"\tsegment {name}\n")
         self.write(f"\t\tparent {parent} \n")
@@ -343,7 +358,7 @@ class WriteBiomod:
                 f"\t\t\t{r41}\t\t{r42}\t\t{r43}\t\t{r44}\n"
             )
 
-    def write_true_segement(
+    def write_true_segment(
         self,
         name,
         parent_name,
@@ -411,6 +426,8 @@ class WriteBiomod:
                 q_range = [q_range]
             if q_range.count(None) != 3:
                 count = 0
+                # take only the non None values in q_range list
+                q_range = [q for q in q_range if q is not None]
                 for q in q_range:
                     if q and q[:2] == "//":
                         count += 1
@@ -488,7 +505,6 @@ class WriteBiomod:
     def write_ortho_segment(
         self, axis, axis_offset, name, parent, rt_in_matrix, frame_offset, q_range=None, trans_dof="", rot_dof=""
     ):
-
         x = axis[0]
         y = axis[1]
         z = axis[2]
@@ -516,7 +532,6 @@ class WriteBiomod:
         q_ranges=None,
         default_values=None,
     ):
-
         default_values = [0, 0, 0] if not default_values else default_values
         axis_basis = []
         list_rot_dof = ["x", "y", "z"]
@@ -535,7 +550,8 @@ class WriteBiomod:
                 )
                 initial_rotation = compute_matrix_rotation([0, 0, float(default_values[i])])
 
-            # TODO: Do not add a try here. If the you can know in advance the error, test it with a if. If you actually need a try, catch a specific error (`except ERRORNAME:` instead of `except:`)
+            # TODO: Do not add a try here. If the you can know in advance the error, test it with a if.
+            #  If you actually need a try, catch a specific error (`except ERRORNAME:` instead of `except:`)
             try:
                 coordinate = spatial_transform[i].coordinate
                 rot_dof = list_rot_dof[count_dof_rot] if not coordinate.locked else "//" + list_rot_dof[count_dof_rot]
@@ -638,14 +654,16 @@ class WriteBiomod:
             # segment to cancel axis effects
             self.write("\n    // Segment to cancel transformation bases effect.\n")
             rotomatrix.set_rotation_matrix(np.linalg.inv(axis_offset))
-            body_name = body.name + "_reset_axis"
-            self.write_virtual_segment(
-                body_name,
-                parent,
-                frame_offset=rotomatrix,
-                rt=1,
-            )
-            parent = body_name
+
+            if not rotomatrix.has_no_transformation():
+                body_name = body.name + "_reset_axis"
+                self.write_virtual_segment(
+                    body_name,
+                    parent,
+                    frame_offset=rotomatrix,
+                    rt=1,
+                )
+                parent = body_name
 
         if parent is None:
             raise RuntimeError(
@@ -653,38 +671,44 @@ class WriteBiomod:
             )
         # True segment
         frame_offset = [dof.child_offset_trans, dof.child_offset_rot]
-        mesh_dir = mesh_dir if mesh_dir else "Geometry"
+
         body.mesh = body.mesh if len(body.mesh) != 0 else [None]
         body.mesh_color = body.mesh_color if len(body.mesh_color) != 0 else [None]
         body.mesh_scale_factor = body.mesh_scale_factor if len(body.mesh_scale_factor) != 0 else [None]
-        for i, virt_body in enumerate(body.virtual_body):
-            if i > 0:
-                body_name = virt_body
-                self.write_virtual_segment(
-                    body_name,
-                    parent,
-                    frame_offset=frame_offset,
-                    mesh_file=f"{mesh_dir}/{body.mesh[i]}",
-                    mesh_color=body.mesh_color[i],
-                    mesh_scale=body.mesh_scale_factor[i],
-                    rt=0,
-                )
-                frame_offset = None
-                parent = body_name
+
         self.write("\n    //True segment where are applied inertial values.\n")
-        mesh_file = f"{mesh_dir}/{body.mesh[0]}" if body.mesh[0] else None
-        self.write_true_segement(
+        self.write_true_segment(
             body.name,
             parent,
             frame_offset=frame_offset,
             com=body.mass_center,
             mass=body.mass,
             inertia=body.inertia,
-            mesh_file=mesh_file,
+            mesh_file=f"{mesh_dir}/{body.mesh[0]}" if body.mesh[0] else None,
             mesh_color=body.mesh_color[0],
             mesh_scale=body.mesh_scale_factor[0],
             rt=0,
         )
+        print(body.mesh)
+        self.write_segments_with_a_geometry_only(body, body.name, mesh_dir)
+
+    def write_segments_with_a_geometry_only(self, body, parent, mesh_dir):
+        for i, virt_body in enumerate(body.virtual_body):
+            if i == 0:
+                # ignore the first body as already printed as a true segment
+                continue
+
+            body_name = virt_body
+            print(f"{body.mesh[i]}")
+            self.write_virtual_segment(
+                body_name,
+                parent,
+                frame_offset=body.mesh_offset[i],
+                mesh_file=f"{mesh_dir}/{body.mesh[i]}",
+                mesh_color=body.mesh_color[i],
+                mesh_scale=body.mesh_scale_factor[i],
+                rt=1,
+            )
 
 
 class Converter:
@@ -700,6 +724,7 @@ class Converter:
         ignore_fixed_dof_tag=False,
         mesh_dir=None,
         ignore_muscle_applied_tag=False,
+        vtp_polygons_to_triangles=True,
     ):
         self.biomod_path = biomod_path
         self.osim_model = ReadOsim(osim_path)
@@ -718,7 +743,11 @@ class Converter:
         self.bodies = self.osim_model.add_markers_to_bodies(self.bodies, self.markers)
         self.muscle_type = muscle_type if muscle_type else "hilldegroote"
         self.state_type = state_type
-        self.mesh_dir = mesh_dir
+        self.mesh_dir = "Geometry" if mesh_dir is None else mesh_dir
+
+        self.new_mesh_dir = self.mesh_dir + "_cleaned"
+        self.vtp_polygons_to_triangles = vtp_polygons_to_triangles
+        self.vtp_files = self.osim_model.get_body_mesh_list()
 
         if isinstance(self.muscle_type, MuscleType):
             self.muscle_type = self.muscle_type.value
@@ -746,6 +775,9 @@ class Converter:
             self.infos,
         )
 
+        if self.vtp_polygons_to_triangles:
+            self.convert_vtp_to_triangles()
+
         # segment
         self.writer.write("\n// SEGMENT DEFINITION\n")
         # Handle the ground frame as a segment
@@ -753,14 +785,24 @@ class Converter:
             body = self.ground[0]
             dof = Joint()
             dof.child_offset_trans, dof.child_offset_rot = [0] * 3, [0] * 3
-            self.writer.write_dof(body, dof, self.mesh_dir, skip_virtual=True, parent="base")
+            self.writer.write_dof(
+                body,
+                dof,
+                self.new_mesh_dir if self.vtp_polygons_to_triangles else self.mesh_dir,
+                skip_virtual=True,
+                parent="base",
+            )
             self.writer.write(f"\n\t// Markers\n")
             for marker in body.markers:
                 self.writer.write_marker(marker)
         for dof in self.joints:
             for body in self.bodies:
                 if body.socket_frame == dof.child_body:
-                    self.writer.write_dof(body, dof, self.mesh_dir)
+                    self.writer.write_dof(
+                        body,
+                        dof,
+                        self.new_mesh_dir if self.vtp_polygons_to_triangles else self.mesh_dir,
+                    )
                     self.writer.write(f"\n\t// Markers\n")
                     for marker in body.markers:
                         self.writer.write_marker(marker)
@@ -800,3 +842,47 @@ class Converter:
             self.writer.write("*/\n")
         self.writer.biomod_file.close()
         print(f"\nYour file {self.osim_path} has been converted into {self.biomod_path}.")
+
+    def convert_vtp_to_triangles(self):
+        """
+        Convert vtp mesh to triangles mesh
+        """
+        if not os.path.exists(self.new_mesh_dir):
+            os.makedirs(self.new_mesh_dir)
+
+        log_file_failed = []
+        print("Cleaning vtp file into triangles: ")
+
+        # select only files in such that filename.endswith('.vtp') or filename in self.vtp_files
+        files = [
+            filename
+            for filename in os.listdir(self.mesh_dir)
+            if filename.endswith(".vtp") and filename in self.vtp_files
+        ]
+
+        for filename in files:
+            complete_path = os.path.join(self.mesh_dir, filename)
+
+            with open(complete_path, "r") as f:
+                print(complete_path)
+                try:
+                    mesh = read_vtp_file(complete_path)
+                    if mesh["polygons"].shape[1] == 3:  # it means it doesn't need to be converted into triangles
+                        shutil.copy(complete_path, self.new_mesh_dir)
+                    else:
+                        poly, nodes, normals = transform_polygon_to_triangles(
+                            mesh["polygons"], mesh["nodes"], mesh["normals"]
+                        )
+                        new_mesh = dict(polygons=poly, nodes=nodes, normals=normals)
+
+                        write_vtp_file(new_mesh, self.new_mesh_dir, filename)
+
+                except:
+                    print(f"Error with {filename}")
+                    log_file_failed.append(filename)
+                    # if failed we just copy the file in the new folder
+                    shutil.copy(complete_path, self.new_mesh_dir)
+
+        if len(log_file_failed) > 0:
+            print("Files failed to clean:")
+            print(log_file_failed)
