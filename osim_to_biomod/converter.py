@@ -422,7 +422,7 @@ class WriteBiomod:
                         else:
                             range_to_write = f"\t\t\t\t{qrange}\n"
                         if q == 0:
-                            if count == len(q_range):
+                            if count == len(q_range) - q_range.count(None):
                                 self.write(f"\t\t// ranges\n")
                             else:
                                 self.write(f"\t\tranges\n")
