@@ -155,7 +155,9 @@ class ReadOsim:
 
             for muscle_to_ignore in muscles_to_ignore:
                 if muscle_to_ignore not in original_muscle_names:
-                    raise RuntimeError(f"The muscle {muscle_to_ignore} cannot be ignored as it is not present in the original osim model.")
+                    raise RuntimeError(
+                        f"The muscle {muscle_to_ignore} cannot be ignored as it is not present in the original osim model."
+                    )
 
             return forces
 
@@ -723,16 +725,16 @@ class Converter:
         self,
         biomod_path: str,
         osim_path: str,
-        muscle_type: MuscleType=None,
-        state_type: MuscleStateType=None,
-        print_warnings: bool=True,
-        print_general_informations: bool=True,
-        ignore_clamped_dof_tag: bool=False,
-        ignore_fixed_dof_tag: bool=False,
-        mesh_dir: str=None,
-        ignore_muscle_applied_tag: bool=False,
-        vtp_polygons_to_triangles: bool=True,
-        muscles_to_ignore: list=None,
+        muscle_type: MuscleType = None,
+        state_type: MuscleStateType = None,
+        print_warnings: bool = True,
+        print_general_informations: bool = True,
+        ignore_clamped_dof_tag: bool = False,
+        ignore_fixed_dof_tag: bool = False,
+        mesh_dir: str = None,
+        ignore_muscle_applied_tag: bool = False,
+        vtp_polygons_to_triangles: bool = True,
+        muscles_to_ignore: list = None,
     ):
         self.biomod_path = biomod_path
         self.osim_model = ReadOsim(osim_path)
