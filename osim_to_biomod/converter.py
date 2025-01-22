@@ -127,17 +127,21 @@ class ReadOsim:
                 markers.append(Marker().get_marker_attrib(element))
             return markers
 
-    def get_force_set(self, ignore_muscle_applied_tag=False):
+    def get_force_set(self, ignore_muscle_applied_tag=False, muscles_to_ignore=None):
         forces = []
         wrap = []
+        original_muscle_names = []
         if self._is_element_empty(self.forceset_elt):
             return None
         else:
             for element in self.forceset_elt[0]:
                 if "Muscle" in element.tag:
-                    forces.append(Muscle().get_muscle_attrib(element, ignore_muscle_applied_tag))
-                    if forces[-1].wrap:
-                        wrap.append(forces[-1].name)
+                    original_muscle_names += [(element.attrib["name"]).split("/")[-1]]
+                    current_muscle = Muscle().get_muscle_attrib(element, ignore_muscle_applied_tag, muscles_to_ignore)
+                    if current_muscle is not None:
+                        forces.append(current_muscle)
+                        if forces[-1].wrap:
+                            wrap.append(forces[-1].name)
                 elif "Force" in element.tag or "Actuator" in element.tag:
                     self.warnings.append(
                         f"Some {element.tag} were present in the original file force set. "
@@ -148,6 +152,10 @@ class ReadOsim:
                     f"Some wrapping objects were present on the muscles :{wrap} in the original file force set.\n"
                     "Only via point are supported in biomod so they will be ignored."
                 )
+
+            for muscle_to_ignore in muscles_to_ignore:
+                if muscle_to_ignore not in original_muscle_names:
+                    raise RuntimeError(f"The muscle {muscle_to_ignore} cannot be ignored as it is not present in the original osim model.")
 
             return forces
 
@@ -713,17 +721,18 @@ class WriteBiomod:
 class Converter:
     def __init__(
         self,
-        biomod_path,
-        osim_path,
-        muscle_type=None,
-        state_type=None,
-        print_warnings=True,
-        print_general_informations=True,
-        ignore_clamped_dof_tag=False,
-        ignore_fixed_dof_tag=False,
-        mesh_dir=None,
-        ignore_muscle_applied_tag=False,
-        vtp_polygons_to_triangles=True,
+        biomod_path: str,
+        osim_path: str,
+        muscle_type: MuscleType=None,
+        state_type: MuscleStateType=None,
+        print_warnings: bool=True,
+        print_general_informations: bool=True,
+        ignore_clamped_dof_tag: bool=False,
+        ignore_fixed_dof_tag: bool=False,
+        mesh_dir: str=None,
+        ignore_muscle_applied_tag: bool=False,
+        vtp_polygons_to_triangles: bool=True,
+        muscles_to_ignore: list=None,
     ):
         self.biomod_path = biomod_path
         self.osim_model = ReadOsim(osim_path)
@@ -732,7 +741,7 @@ class Converter:
         self.print_warnings = print_warnings
         self.print_general_informations = print_general_informations
         self.ground = self.osim_model.get_body_set(body_set=[self.osim_model.ground_elt])
-        self.forces = self.osim_model.get_force_set(ignore_muscle_applied_tag)
+        self.forces = self.osim_model.get_force_set(ignore_muscle_applied_tag, muscles_to_ignore)
         self.joints = self.osim_model.get_joint_set(ignore_fixed_dof_tag, ignore_clamped_dof_tag)
         self.bodies = self.osim_model.get_body_set()
         self.markers = self.osim_model.get_marker_set()
