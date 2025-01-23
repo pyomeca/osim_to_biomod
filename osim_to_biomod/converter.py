@@ -68,6 +68,8 @@ class ReadOsim:
                     raise RuntimeError("Lengths units must be in meters.")
             elif element.tag == "force_units":
                 self.force_units = element.text
+            elif element.tag == "ModelVisualPreferences":
+                print("ModelVisualPreferences are not supported in biomod. They will be ignored.")
             else:
                 raise RuntimeError(
                     f"Element {element.tag} not recognize. Please verify your xml file or send an issue"
