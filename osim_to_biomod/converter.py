@@ -857,8 +857,11 @@ class Converter:
         """
         Convert vtp mesh to triangles mesh
         """
-        if not os.path.exists(self.new_mesh_dir):
-            os.makedirs(self.new_mesh_dir)
+        mesh_dir_relative = os.path.join(self.biomod_path[:self.biomod_path.rindex('/')], self.mesh_dir)
+        new_mesh_dir_relative = os.path.join(self.biomod_path[:self.biomod_path.rindex('/')], self.new_mesh_dir)
+
+        if not os.path.exists(new_mesh_dir_relative):
+            os.makedirs(new_mesh_dir_relative)
 
         log_file_failed = []
         print("Cleaning vtp file into triangles: ")
@@ -866,32 +869,32 @@ class Converter:
         # select only files in such that filename.endswith('.vtp') or filename in self.vtp_files
         files = [
             filename
-            for filename in os.listdir(self.mesh_dir)
+            for filename in os.listdir(mesh_dir_relative)
             if filename.endswith(".vtp") and filename in self.vtp_files
         ]
 
         for filename in files:
-            complete_path = os.path.join(self.mesh_dir, filename)
+            complete_path = os.path.join(mesh_dir_relative, filename)
 
             with open(complete_path, "r") as f:
                 print(complete_path)
                 try:
                     mesh = read_vtp_file(complete_path)
                     if mesh["polygons"].shape[1] == 3:  # it means it doesn't need to be converted into triangles
-                        shutil.copy(complete_path, self.new_mesh_dir)
+                        shutil.copy(complete_path, new_mesh_dir_relative)
                     else:
                         poly, nodes, normals = transform_polygon_to_triangles(
                             mesh["polygons"], mesh["nodes"], mesh["normals"]
                         )
                         new_mesh = dict(polygons=poly, nodes=nodes, normals=normals)
 
-                        write_vtp_file(new_mesh, self.new_mesh_dir, filename)
+                        write_vtp_file(new_mesh, new_mesh_dir_relative, filename)
 
                 except:
                     print(f"Error with {filename}")
                     log_file_failed.append(filename)
                     # if failed we just copy the file in the new folder
-                    shutil.copy(complete_path, self.new_mesh_dir)
+                    shutil.copy(complete_path, new_mesh_dir_relative)
 
         if len(log_file_failed) > 0:
             print("Files failed to clean:")
