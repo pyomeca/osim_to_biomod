@@ -118,13 +118,22 @@ class ReadOsim:
                 body_mesh_list.extend(Body().get_body_attrib(element).mesh)
             return body_mesh_list
 
-    def get_marker_set(self):
+    def get_marker_set(self, markers_to_ignore: list[str]):
         markers = []
         if self._is_element_empty(self.markerset_elt):
             return None
         else:
+            original_marker_names = []
             for element in self.markerset_elt[0]:
-                markers.append(Marker().get_marker_attrib(element))
+                marker = Marker().get_marker_attrib(element)
+                original_marker_names += [marker.name]
+                if marker.name not in markers_to_ignore:
+                    markers.append(marker)
+            for marker_to_ignore in markers_to_ignore:
+                if marker_to_ignore not in original_marker_names:
+                    raise RuntimeError(
+                        f"The marker {marker_to_ignore} cannot be ignored as it is not present in the original osim model."
+                    )
             return markers
 
     def get_force_set(self, ignore_muscle_applied_tag=False, muscles_to_ignore=None):
@@ -735,6 +744,7 @@ class Converter:
         ignore_muscle_applied_tag: bool = False,
         vtp_polygons_to_triangles: bool = True,
         muscles_to_ignore: list = None,
+        markers_to_ignore: list = None,
     ):
         self.biomod_path = biomod_path
         self.osim_model = ReadOsim(osim_path)
@@ -746,7 +756,7 @@ class Converter:
         self.forces = self.osim_model.get_force_set(ignore_muscle_applied_tag, muscles_to_ignore)
         self.joints = self.osim_model.get_joint_set(ignore_fixed_dof_tag, ignore_clamped_dof_tag)
         self.bodies = self.osim_model.get_body_set()
-        self.markers = self.osim_model.get_marker_set()
+        self.markers = self.osim_model.get_marker_set(markers_to_ignore=markers_to_ignore)
         self.infos, self.warnings = self.osim_model.infos, self.osim_model.get_warnings()
         self.ground = self.osim_model.add_markers_to_bodies(self.ground, self.markers)
 
@@ -857,8 +867,8 @@ class Converter:
         """
         Convert vtp mesh to triangles mesh
         """
-        mesh_dir_relative = os.path.join(self.biomod_path[:self.biomod_path.rindex('/')], self.mesh_dir)
-        new_mesh_dir_relative = os.path.join(self.biomod_path[:self.biomod_path.rindex('/')], self.new_mesh_dir)
+        mesh_dir_relative = os.path.join(self.biomod_path[: self.biomod_path.rindex("/")], self.mesh_dir)
+        new_mesh_dir_relative = os.path.join(self.biomod_path[: self.biomod_path.rindex("/")], self.new_mesh_dir)
 
         if not os.path.exists(new_mesh_dir_relative):
             os.makedirs(new_mesh_dir_relative)
