@@ -207,8 +207,11 @@ class Muscle:
         self.group = None
         self.state_type = None
 
-    def get_muscle_attrib(self, element, ignore_applied):
-        self.name = (element.attrib["name"]).split("/")[-1]
+    def get_muscle_attrib(self, element, ignore_applied, muscles_to_ignore):
+        name = (element.attrib["name"]).split("/")[-1]
+        if name in muscles_to_ignore:
+            return None
+        self.name = name
         self.maximal_force = find(element, "max_isometric_force")
         self.optimal_length = find(element, "optimal_fiber_length")
         self.tendon_slack_length = find(element, "tendon_slack_length")

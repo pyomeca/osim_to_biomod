@@ -118,26 +118,39 @@ class ReadOsim:
                 body_mesh_list.extend(Body().get_body_attrib(element).mesh)
             return body_mesh_list
 
-    def get_marker_set(self):
+    def get_marker_set(self, markers_to_ignore: list[str]):
         markers = []
         if self._is_element_empty(self.markerset_elt):
             return None
         else:
+            original_marker_names = []
             for element in self.markerset_elt[0]:
-                markers.append(Marker().get_marker_attrib(element))
+                marker = Marker().get_marker_attrib(element)
+                original_marker_names += [marker.name]
+                if marker.name not in markers_to_ignore:
+                    markers.append(marker)
+            for marker_to_ignore in markers_to_ignore:
+                if marker_to_ignore not in original_marker_names:
+                    raise RuntimeError(
+                        f"The marker {marker_to_ignore} cannot be ignored as it is not present in the original osim model."
+                    )
             return markers
 
-    def get_force_set(self, ignore_muscle_applied_tag=False):
+    def get_force_set(self, ignore_muscle_applied_tag=False, muscles_to_ignore=None):
         forces = []
         wrap = []
+        original_muscle_names = []
         if self._is_element_empty(self.forceset_elt):
             return None
         else:
             for element in self.forceset_elt[0]:
                 if "Muscle" in element.tag:
-                    forces.append(Muscle().get_muscle_attrib(element, ignore_muscle_applied_tag))
-                    if forces[-1].wrap:
-                        wrap.append(forces[-1].name)
+                    original_muscle_names += [(element.attrib["name"]).split("/")[-1]]
+                    current_muscle = Muscle().get_muscle_attrib(element, ignore_muscle_applied_tag, muscles_to_ignore)
+                    if current_muscle is not None:
+                        forces.append(current_muscle)
+                        if forces[-1].wrap:
+                            wrap.append(forces[-1].name)
                 elif "Force" in element.tag or "Actuator" in element.tag:
                     self.warnings.append(
                         f"Some {element.tag} were present in the original file force set. "
@@ -148,6 +161,12 @@ class ReadOsim:
                     f"Some wrapping objects were present on the muscles :{wrap} in the original file force set.\n"
                     "Only via point are supported in biomod so they will be ignored."
                 )
+
+            for muscle_to_ignore in muscles_to_ignore:
+                if muscle_to_ignore not in original_muscle_names:
+                    raise RuntimeError(
+                        f"The muscle {muscle_to_ignore} cannot be ignored as it is not present in the original osim model."
+                    )
 
             return forces
 
@@ -713,17 +732,19 @@ class WriteBiomod:
 class Converter:
     def __init__(
         self,
-        biomod_path,
-        osim_path,
-        muscle_type=None,
-        state_type=None,
-        print_warnings=True,
-        print_general_informations=True,
-        ignore_clamped_dof_tag=False,
-        ignore_fixed_dof_tag=False,
-        mesh_dir=None,
-        ignore_muscle_applied_tag=False,
-        vtp_polygons_to_triangles=True,
+        biomod_path: str,
+        osim_path: str,
+        muscle_type: MuscleType = None,
+        state_type: MuscleStateType = None,
+        print_warnings: bool = True,
+        print_general_informations: bool = True,
+        ignore_clamped_dof_tag: bool = False,
+        ignore_fixed_dof_tag: bool = False,
+        mesh_dir: str = None,
+        ignore_muscle_applied_tag: bool = False,
+        vtp_polygons_to_triangles: bool = True,
+        muscles_to_ignore: list = None,
+        markers_to_ignore: list = None,
     ):
         self.biomod_path = biomod_path
         self.osim_model = ReadOsim(osim_path)
@@ -732,10 +753,10 @@ class Converter:
         self.print_warnings = print_warnings
         self.print_general_informations = print_general_informations
         self.ground = self.osim_model.get_body_set(body_set=[self.osim_model.ground_elt])
-        self.forces = self.osim_model.get_force_set(ignore_muscle_applied_tag)
+        self.forces = self.osim_model.get_force_set(ignore_muscle_applied_tag, muscles_to_ignore)
         self.joints = self.osim_model.get_joint_set(ignore_fixed_dof_tag, ignore_clamped_dof_tag)
         self.bodies = self.osim_model.get_body_set()
-        self.markers = self.osim_model.get_marker_set()
+        self.markers = self.osim_model.get_marker_set(markers_to_ignore=markers_to_ignore)
         self.infos, self.warnings = self.osim_model.infos, self.osim_model.get_warnings()
         self.ground = self.osim_model.add_markers_to_bodies(self.ground, self.markers)
 
@@ -846,8 +867,11 @@ class Converter:
         """
         Convert vtp mesh to triangles mesh
         """
-        if not os.path.exists(self.new_mesh_dir):
-            os.makedirs(self.new_mesh_dir)
+        mesh_dir_relative = os.path.join(self.biomod_path[: self.biomod_path.rindex("/")], self.mesh_dir)
+        new_mesh_dir_relative = os.path.join(self.biomod_path[: self.biomod_path.rindex("/")], self.new_mesh_dir)
+
+        if not os.path.exists(new_mesh_dir_relative):
+            os.makedirs(new_mesh_dir_relative)
 
         log_file_failed = []
         print("Cleaning vtp file into triangles: ")
@@ -855,32 +879,32 @@ class Converter:
         # select only files in such that filename.endswith('.vtp') or filename in self.vtp_files
         files = [
             filename
-            for filename in os.listdir(self.mesh_dir)
+            for filename in os.listdir(mesh_dir_relative)
             if filename.endswith(".vtp") and filename in self.vtp_files
         ]
 
         for filename in files:
-            complete_path = os.path.join(self.mesh_dir, filename)
+            complete_path = os.path.join(mesh_dir_relative, filename)
 
             with open(complete_path, "r") as f:
                 print(complete_path)
                 try:
                     mesh = read_vtp_file(complete_path)
                     if mesh["polygons"].shape[1] == 3:  # it means it doesn't need to be converted into triangles
-                        shutil.copy(complete_path, self.new_mesh_dir)
+                        shutil.copy(complete_path, new_mesh_dir_relative)
                     else:
                         poly, nodes, normals = transform_polygon_to_triangles(
                             mesh["polygons"], mesh["nodes"], mesh["normals"]
                         )
                         new_mesh = dict(polygons=poly, nodes=nodes, normals=normals)
 
-                        write_vtp_file(new_mesh, self.new_mesh_dir, filename)
+                        write_vtp_file(new_mesh, new_mesh_dir_relative, filename)
 
                 except:
                     print(f"Error with {filename}")
                     log_file_failed.append(filename)
                     # if failed we just copy the file in the new folder
-                    shutil.copy(complete_path, self.new_mesh_dir)
+                    shutil.copy(complete_path, new_mesh_dir_relative)
 
         if len(log_file_failed) > 0:
             print("Files failed to clean:")
