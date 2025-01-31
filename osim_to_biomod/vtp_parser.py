@@ -61,10 +61,12 @@ def read_vtp_file(filename: str) -> dict:
             if type_ == "polygons":
                 tmp = handle_polygons_shape(mesh_dictionnary=mesh_dictionnary, polygon_apex_idx=tmp)
 
-            if mesh_dictionnary[type_][i - 1, :].shape[0] == 3 and tmp.shape[0] == 6:
-                raise NotImplementedError("This vtp file cannot be cleaned yet to get triangles.")
-
-            mesh_dictionnary[type_][i - 1, :] = tmp
+            if type_ == "nodes" and tmp.shape[0] == 6:
+                mesh_dictionnary[type_][i - 1, :] = tmp[0:3]
+                i += 1
+                mesh_dictionnary[type_][i - 1, :] = tmp[3:6]
+            else:
+                mesh_dictionnary[type_][i - 1, :] = tmp
 
     return mesh_dictionnary
 
