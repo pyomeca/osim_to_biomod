@@ -68,6 +68,8 @@ class ReadOsim:
                     raise RuntimeError("Lengths units must be in meters.")
             elif element.tag == "force_units":
                 self.force_units = element.text
+            elif element.tag == "ModelVisualPreferences":
+                print("ModelVisualPreferences are not supported in biomod. They will be ignored.")
             else:
                 raise RuntimeError(
                     f"Element {element.tag} not recognize. Please verify your xml file or send an issue"
@@ -448,20 +450,21 @@ class WriteBiomod:
                 # take only the non None values in q_range list
                 q_range = [q for q in q_range if q is not None]
                 for q in q_range:
-                    if q_range and q[:2] == "//":
+                    if q and q[:2] == "//":
                         count += 1
 
                 for q, qrange in enumerate(q_range):
-                    if rot_dof[:2] == "//":
-                        range_to_write = f"\t\t\t\t//{qrange[2:]}\n"
-                    else:
-                        range_to_write = f"\t\t\t\t{qrange}\n"
-                    if q == 0:
-                        if count == len(q_range):
-                            self.write(f"\t\t// ranges\n")
+                    if qrange:
+                        if rot_dof[:2] == "//":
+                            range_to_write = f"\t\t\t\t//{qrange[2:]}\n"
                         else:
-                            self.write(f"\t\tranges\n")
-                    self.write(range_to_write)
+                            range_to_write = f"\t\t\t\t{qrange}\n"
+                        if q == 0:
+                            if count == len(q_range) - q_range.count(None):
+                                self.write(f"\t\t// ranges\n")
+                            else:
+                                self.write(f"\t\tranges\n")
+                        self.write(range_to_write)
 
         if mesh_file:
             self.write(f"\t\tmeshfile\t{mesh_file}\n")
